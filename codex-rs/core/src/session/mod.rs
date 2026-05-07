@@ -26,9 +26,13 @@ use crate::context::AvailablePluginsInstructions;
 use crate::context::AvailableSkillsInstructions;
 use crate::context::CollaborationModeInstructions;
 use crate::context::ContextualUserFragment;
+use crate::context::CurrentTaskFacts;
 use crate::context::NetworkRuleSaved;
 use crate::context::PermissionsInstructions;
 use crate::context::PersonalitySpecInstructions;
+use crate::context::PromptLayerDiagnostic;
+use crate::context::build_static_prompt_layer_diagnostics;
+use crate::context::current_task_facts_diagnostic;
 use crate::default_skill_metadata_budget;
 use crate::environment_selection::ResolvedTurnEnvironments;
 use crate::exec_policy::ExecPolicyManager;
@@ -498,9 +502,10 @@ impl Codex {
         }
 
         let primary_environment = environment_selections.primary_environment();
-        let user_instructions = AgentsMdManager::new(&config)
-            .user_instructions(primary_environment.as_deref())
+        let instruction_layers = AgentsMdManager::new(&config)
+            .instruction_layers(primary_environment.as_deref())
             .await;
+        let user_instructions = instruction_layers.render_user_instructions();
 
         let exec_policy = if crate::guardian::is_guardian_reviewer_source(&session_source) {
             // Guardian review should rely on the built-in shell safety checks,
@@ -547,6 +552,12 @@ impl Codex {
             .clone()
             .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
             .unwrap_or_else(|| model_info.get_model_instructions(config.personality));
+        let prompt_layers = build_static_prompt_layer_diagnostics(
+            &config.codex_home,
+            &config.cwd,
+            &base_instructions,
+            &instruction_layers,
+        );
 
         // Respect thread-start tools. When missing (resumed/forked threads), read from the db
         // first, then fall back to rollout-file tools.
@@ -608,6 +619,7 @@ impl Codex {
             service_tier,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions,
+            prompt_layers,
             personality: config.personality,
             base_instructions,
             compact_prompt: config.compact_prompt.clone(),
@@ -1137,6 +1149,18 @@ impl Session {
         BaseInstructions {
             text: state.session_configuration.base_instructions.clone(),
         }
+    }
+
+    pub(crate) async fn prompt_layer_diagnostics(&self) -> Vec<PromptLayerDiagnostic> {
+        let (mut layers, method_state_status) = {
+            let state = self.state.lock().await;
+            (
+                state.session_configuration.prompt_layers.clone(),
+                state.method_state_status(),
+            )
+        };
+        layers.push(current_task_facts_diagnostic(&method_state_status));
+        layers
     }
 
     // Merges connector IDs into the session-level explicit connector selection.
@@ -2562,6 +2586,7 @@ impl Session {
             collaboration_mode,
             base_instructions,
             session_source,
+            method_state_status,
         ) = {
             let state = self.state.lock().await;
             (
@@ -2570,6 +2595,7 @@ impl Session {
                 state.session_configuration.collaboration_mode.clone(),
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
+                state.method_state_status(),
             )
         };
         if let Some(model_switch_message) =
@@ -2722,6 +2748,14 @@ impl Session {
                     .render(),
             );
         }
+        contextual_user_sections.push(
+            CurrentTaskFacts::new(
+                self.conversation_id,
+                turn_context.cwd.clone(),
+                method_state_status,
+            )
+            .render(),
+        );
 
         let multi_agent_v2_usage_hint_text =
             multi_agents::usage_hint_text(turn_context, &session_source);

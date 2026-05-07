@@ -58,6 +58,8 @@ pub(crate) struct SessionConfiguration {
 
     /// Model instructions that are appended to the base instructions.
     pub(super) user_instructions: Option<String>,
+    /// Redacted, ordered prompt layer diagnostics for this session.
+    pub(super) prompt_layers: Vec<crate::context::PromptLayerDiagnostic>,
 
     /// Personality preference for the model.
     pub(super) personality: Option<Personality>,

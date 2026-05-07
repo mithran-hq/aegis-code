@@ -22,6 +22,12 @@ async fn agents_md_paths(config: &Config) -> std::io::Result<Vec<AbsolutePathBuf
         .await
 }
 
+async fn instruction_layers(config: &Config) -> AgentsMdInstructionLayers {
+    AgentsMdManager::new(config)
+        .instruction_layers_with_fs(LOCAL_FS.as_ref())
+        .await
+}
+
 /// Helper that returns a `Config` pointing at `root` and using `limit` as
 /// the maximum number of bytes to embed from AGENTS.md. The caller can
 /// optionally specify a custom `instructions` string – when `None` the
@@ -98,6 +104,25 @@ async fn no_doc_file_returns_none() {
         "Expected None when AGENTS.md is absent and no system instructions provided"
     );
     assert!(res.is_none(), "Expected None when AGENTS.md is absent");
+}
+
+#[tokio::test]
+async fn instruction_layers_separate_user_and_project_guidance() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(tmp.path().join("AGENTS.md"), "project guidance").unwrap();
+    let config = make_config(&tmp, /*limit*/ 4096, Some("user guidance")).await;
+
+    let layers = instruction_layers(&config).await;
+
+    assert_eq!(layers.user.as_deref(), Some("user guidance"));
+    let project = layers.project.as_ref().expect("project layer");
+    assert_eq!(project.contents, "project guidance");
+    assert_eq!(project.sources.len(), 1);
+    assert!(project.sources[0].ends_with("AGENTS.md"));
+    assert_eq!(
+        layers.render_user_instructions().as_deref(),
+        Some("user guidance\n\n--- project-doc ---\n\nproject guidance")
+    );
 }
 
 #[tokio::test]

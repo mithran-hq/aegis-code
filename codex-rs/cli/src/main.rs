@@ -214,6 +214,9 @@ enum DebugSubcommand {
     /// Render the model-visible prompt input list as JSON.
     PromptInput(DebugPromptInputCommand),
 
+    /// Render the redacted active prompt layer list as JSON.
+    PromptLayers(DebugPromptLayersCommand),
+
     /// Replay a rollout trace bundle and write reduced state JSON.
     #[clap(hide = true)]
     TraceReduce(DebugTraceReduceCommand),
@@ -244,6 +247,17 @@ struct DebugAppServerSendMessageV2Command {
 #[derive(Debug, Parser)]
 struct DebugPromptInputCommand {
     /// Optional user prompt to append after session context.
+    #[arg(value_name = "PROMPT")]
+    prompt: Option<String>,
+
+    /// Optional image(s) to attach to the user prompt.
+    #[arg(long = "image", short = 'i', value_name = "FILE", value_delimiter = ',', num_args = 1..)]
+    images: Vec<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct DebugPromptLayersCommand {
+    /// Optional user prompt to resolve the same session context as prompt-input.
     #[arg(value_name = "PROMPT")]
     prompt: Option<String>,
 
@@ -1124,6 +1138,20 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 )
                 .await?;
             }
+            DebugSubcommand::PromptLayers(cmd) => {
+                reject_remote_mode_for_subcommand(
+                    root_remote.as_deref(),
+                    root_remote_auth_token_env.as_deref(),
+                    "debug prompt-layers",
+                )?;
+                run_debug_prompt_layers_command(
+                    cmd,
+                    root_config_overrides,
+                    interactive,
+                    arg0_paths.clone(),
+                )
+                .await?;
+            }
             DebugSubcommand::TraceReduce(cmd) => {
                 reject_remote_mode_for_subcommand(
                     root_remote.as_deref(),
@@ -1412,6 +1440,69 @@ async fn run_debug_prompt_input_command(
 
     let prompt_input = codex_core::build_prompt_input(config, input, /*state_db*/ None).await?;
     println!("{}", serde_json::to_string_pretty(&prompt_input)?);
+
+    Ok(())
+}
+
+async fn run_debug_prompt_layers_command(
+    cmd: DebugPromptLayersCommand,
+    root_config_overrides: CliConfigOverrides,
+    interactive: TuiCli,
+    arg0_paths: Arg0DispatchPaths,
+) -> anyhow::Result<()> {
+    let shared = interactive.shared.into_inner();
+    let mut cli_kv_overrides = root_config_overrides
+        .parse_overrides()
+        .map_err(anyhow::Error::msg)?;
+    if interactive.web_search {
+        cli_kv_overrides.push((
+            "web_search".to_string(),
+            toml::Value::String("live".to_string()),
+        ));
+    }
+
+    let approval_policy = if shared.dangerously_bypass_approvals_and_sandbox {
+        Some(AskForApproval::Never)
+    } else {
+        interactive.approval_policy.map(Into::into)
+    };
+    let sandbox_mode = if shared.dangerously_bypass_approvals_and_sandbox {
+        Some(codex_protocol::config_types::SandboxMode::DangerFullAccess)
+    } else {
+        shared.sandbox_mode.map(Into::into)
+    };
+    let overrides = ConfigOverrides {
+        model: shared.model,
+        config_profile: shared.config_profile,
+        approval_policy,
+        sandbox_mode,
+        cwd: shared.cwd,
+        codex_self_exe: arg0_paths.codex_self_exe,
+        codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe,
+        main_execve_wrapper_exe: arg0_paths.main_execve_wrapper_exe,
+        show_raw_agent_reasoning: shared.oss.then_some(true),
+        ephemeral: Some(true),
+        additional_writable_roots: shared.add_dir,
+        ..Default::default()
+    };
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides).await?;
+
+    let mut input = shared
+        .images
+        .into_iter()
+        .chain(cmd.images)
+        .map(|path| UserInput::LocalImage { path })
+        .collect::<Vec<_>>();
+    if let Some(prompt) = cmd.prompt.or(interactive.prompt) {
+        input.push(UserInput::Text {
+            text: prompt.replace("\r\n", "\n").replace('\r', "\n"),
+            text_elements: Vec::new(),
+        });
+    }
+
+    let prompt_layers = codex_core::build_prompt_layers(config, input, /*state_db*/ None).await?;
+    println!("{}", serde_json::to_string_pretty(&prompt_layers)?);
 
     Ok(())
 }
@@ -1857,6 +1948,32 @@ mod tests {
         })) = cli.subcommand
         else {
             panic!("expected debug prompt-input subcommand");
+        };
+
+        assert_eq!(cmd.prompt.as_deref(), Some("hello"));
+        assert_eq!(
+            cmd.images,
+            vec![PathBuf::from("/tmp/a.png"), PathBuf::from("/tmp/b.png")]
+        );
+    }
+
+    #[test]
+    fn debug_prompt_layers_parses_prompt_and_images() {
+        let cli = MultitoolCli::try_parse_from([
+            "aegis",
+            "debug",
+            "prompt-layers",
+            "hello",
+            "--image",
+            "/tmp/a.png,/tmp/b.png",
+        ])
+        .expect("parse");
+
+        let Some(Subcommand::Debug(DebugCommand {
+            subcommand: DebugSubcommand::PromptLayers(cmd),
+        })) = cli.subcommand
+        else {
+            panic!("expected debug prompt-layers subcommand");
         };
 
         assert_eq!(cmd.prompt.as_deref(), Some("hello"));

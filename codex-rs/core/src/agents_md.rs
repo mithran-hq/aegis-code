@@ -53,6 +53,45 @@ pub(crate) struct LoadedAgentsMd {
     pub(crate) path: AbsolutePathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentsMdInstructionLayers {
+    pub(crate) user: Option<String>,
+    pub(crate) project: Option<ProjectAgentsMdLayer>,
+    pub(crate) child_agents_md_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProjectAgentsMdLayer {
+    pub(crate) contents: String,
+    pub(crate) sources: Vec<AbsolutePathBuf>,
+}
+
+impl AgentsMdInstructionLayers {
+    pub(crate) fn render_user_instructions(&self) -> Option<String> {
+        let mut output = String::new();
+
+        if let Some(instructions) = self.user.clone() {
+            output.push_str(&instructions);
+        }
+
+        if let Some(project) = &self.project {
+            if !output.is_empty() {
+                output.push_str(AGENTS_MD_SEPARATOR);
+            }
+            output.push_str(&project.contents);
+        }
+
+        if self.child_agents_md_enabled {
+            if !output.is_empty() {
+                output.push_str("\n\n");
+            }
+            output.push_str(HIERARCHICAL_AGENTS_MESSAGE);
+        }
+
+        (!output.is_empty()).then_some(output)
+    }
+}
+
 impl<'a> AgentsMdManager<'a> {
     pub fn new(config: &'a Config) -> Self {
         Self { config }
@@ -79,6 +118,7 @@ impl<'a> AgentsMdManager<'a> {
 
     /// Combines configured user instructions and AGENTS.md content into a
     /// single model-visible instruction string.
+    #[cfg(test)]
     pub(crate) async fn user_instructions(
         &self,
         environment: Option<&Environment>,
@@ -87,42 +127,47 @@ impl<'a> AgentsMdManager<'a> {
         self.user_instructions_with_fs(fs.as_ref()).await
     }
 
+    #[cfg(test)]
     pub(crate) async fn user_instructions_with_fs(
         &self,
         fs: &dyn ExecutorFileSystem,
     ) -> Option<String> {
-        let agents_md_docs = self.read_agents_md(fs).await;
+        self.instruction_layers_with_fs(fs)
+            .await
+            .render_user_instructions()
+    }
 
-        let mut output = String::new();
+    pub(crate) async fn instruction_layers(
+        &self,
+        environment: Option<&Environment>,
+    ) -> AgentsMdInstructionLayers {
+        let Some(environment) = environment else {
+            return AgentsMdInstructionLayers {
+                user: self.config.user_instructions.clone(),
+                project: None,
+                child_agents_md_enabled: self.config.features.enabled(Feature::ChildAgentsMd),
+            };
+        };
+        let fs = environment.get_filesystem();
+        self.instruction_layers_with_fs(fs.as_ref()).await
+    }
 
-        if let Some(instructions) = self.config.user_instructions.clone() {
-            output.push_str(&instructions);
-        }
-
-        match agents_md_docs {
-            Ok(Some(docs)) => {
-                if !output.is_empty() {
-                    output.push_str(AGENTS_MD_SEPARATOR);
-                }
-                output.push_str(&docs);
-            }
-            Ok(None) => {}
+    pub(crate) async fn instruction_layers_with_fs(
+        &self,
+        fs: &dyn ExecutorFileSystem,
+    ) -> AgentsMdInstructionLayers {
+        let project = match self.read_project_agents_md(fs).await {
+            Ok(project) => project,
             Err(e) => {
                 error!("error trying to find AGENTS.md docs: {e:#}");
+                None
             }
         };
 
-        if self.config.features.enabled(Feature::ChildAgentsMd) {
-            if !output.is_empty() {
-                output.push_str("\n\n");
-            }
-            output.push_str(HIERARCHICAL_AGENTS_MESSAGE);
-        }
-
-        if !output.is_empty() {
-            Some(output)
-        } else {
-            None
+        AgentsMdInstructionLayers {
+            user: self.config.user_instructions.clone(),
+            project,
+            child_agents_md_enabled: self.config.features.enabled(Feature::ChildAgentsMd),
         }
     }
 
@@ -140,13 +185,10 @@ impl<'a> AgentsMdManager<'a> {
         paths
     }
 
-    /// Attempt to locate and load AGENTS.md documentation.
-    ///
-    /// On success returns `Ok(Some(contents))` where `contents` is the
-    /// concatenation of all discovered docs. If no documentation file is found
-    /// the function returns `Ok(None)`. Unexpected I/O failures bubble up as
-    /// `Err` so callers can decide how to handle them.
-    async fn read_agents_md(&self, fs: &dyn ExecutorFileSystem) -> io::Result<Option<String>> {
+    async fn read_project_agents_md(
+        &self,
+        fs: &dyn ExecutorFileSystem,
+    ) -> io::Result<Option<ProjectAgentsMdLayer>> {
         let max_total = self.config.project_doc_max_bytes;
 
         if max_total == 0 {
@@ -160,6 +202,7 @@ impl<'a> AgentsMdManager<'a> {
 
         let mut remaining: u64 = max_total as u64;
         let mut parts: Vec<String> = Vec::new();
+        let mut sources: Vec<AbsolutePathBuf> = Vec::new();
 
         for p in paths {
             if remaining == 0 {
@@ -194,6 +237,7 @@ impl<'a> AgentsMdManager<'a> {
             let text = String::from_utf8_lossy(&data).to_string();
             if !text.trim().is_empty() {
                 parts.push(text);
+                sources.push(p);
                 remaining = remaining.saturating_sub(data.len() as u64);
             }
         }
@@ -201,7 +245,10 @@ impl<'a> AgentsMdManager<'a> {
         if parts.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(parts.join("\n\n")))
+            Ok(Some(ProjectAgentsMdLayer {
+                contents: parts.join("\n\n"),
+                sources,
+            }))
         }
     }
 

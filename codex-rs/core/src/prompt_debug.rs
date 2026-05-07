@@ -13,6 +13,7 @@ use codex_protocol::user_input::UserInput;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
+use crate::context::PromptLayerDiagnostic;
 use crate::resolve_installation_id;
 use crate::session::session::Session;
 use crate::session::turn::build_prompt;
@@ -58,6 +59,45 @@ pub async fn build_prompt_input(
 
     shutdown?;
     output
+}
+
+/// Build the redacted active prompt layer list for a single debug turn.
+#[doc(hidden)]
+pub async fn build_prompt_layers(
+    mut config: Config,
+    _input: Vec<UserInput>,
+    state_db: Option<StateDbHandle>,
+) -> CodexResult<Vec<PromptLayerDiagnostic>> {
+    config.ephemeral = true;
+
+    let auth_manager =
+        AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await;
+
+    let local_runtime_paths = ExecServerRuntimePaths::from_optional_paths(
+        config.codex_self_exe.clone(),
+        config.codex_linux_sandbox_exe.clone(),
+    )?;
+
+    let thread_store = thread_store_from_config(&config, state_db.clone());
+    let installation_id = resolve_installation_id(&config.codex_home).await?;
+    let thread_manager = ThreadManager::new(
+        &config,
+        Arc::clone(&auth_manager),
+        SessionSource::Exec,
+        Arc::new(EnvironmentManager::new(EnvironmentManagerArgs::new(local_runtime_paths)).await),
+        /*analytics_events_client*/ None,
+        thread_store,
+        state_db.clone(),
+        installation_id,
+    );
+    let thread = thread_manager.start_thread(config).await?;
+
+    let output = thread.thread.codex.session.prompt_layer_diagnostics().await;
+    let shutdown = thread.thread.shutdown_and_wait().await;
+    let _removed = thread_manager.remove_thread(&thread.thread_id).await;
+
+    shutdown?;
+    Ok(output)
 }
 
 pub(crate) async fn build_prompt_input_from_session(
