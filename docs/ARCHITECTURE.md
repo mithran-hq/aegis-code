@@ -64,6 +64,9 @@ Prompt assembly should be deterministic:
 Unpromoted candidate packs are visible to humans and tools, but they do not
 change active behavior.
 
+The v1 context-pack TOML contract is defined in
+[Context Packs](context-packs.md).
+
 ## Aegis Engine Loop
 
 The v1 learning loop is asynchronous:
