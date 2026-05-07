@@ -6,6 +6,22 @@ For advanced configuration instructions, see [this documentation](https://develo
 
 For a full configuration reference, see [this documentation](https://developers.openai.com/codex/config-reference).
 
+## Context packs
+
+Context packs are loaded only from explicit TOML paths configured in
+`~/.aegis/config.toml`:
+
+```toml
+context_pack_paths = [
+  "/Users/bruno/.aegis/context-packs/user-method.toml",
+  "/Users/bruno/src/project/.aegis/project-policy.toml",
+]
+```
+
+Only valid packs with `promotion.status = "promoted"` contribute
+`guidance.text` to prompt assembly. Candidate, retired, unreadable, invalid, or
+schema-incompatible packs are ignored fail-closed and reported by `aegis doctor`.
+
 ## Commit attribution
 
 Codex can add a [git trailer](https://git-scm.com/docs/git-interpret-trailers) to

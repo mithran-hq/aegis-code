@@ -1,5 +1,6 @@
 use super::*;
 use crate::agents_md::ProjectAgentsMdLayer;
+use crate::context_packs::ContextPackGuidanceLayer;
 use crate::state::MethodStatePersistenceStatus;
 use pretty_assertions::assert_eq;
 
@@ -18,6 +19,7 @@ fn static_prompt_layer_order_is_fixed() {
             sources: vec![abs("/tmp/project/AGENTS.md")],
         }),
         child_agents_md_enabled: false,
+        ..Default::default()
     };
 
     let diagnostics =
@@ -55,6 +57,7 @@ fn diagnostics_redact_sources_and_not_bodies() {
             sources: vec![abs("/tmp/project/sub/AGENTS.md")],
         }),
         child_agents_md_enabled: false,
+        ..Default::default()
     };
 
     let diagnostics =
@@ -68,13 +71,14 @@ fn diagnostics_redact_sources_and_not_bodies() {
 }
 
 #[test]
-fn promoted_learned_pack_is_inactive_until_later_issues() {
+fn promoted_learned_pack_is_inactive_without_configured_pack() {
     let codex_home = abs("/tmp/aegis-home");
     let cwd = abs("/tmp/project");
     let layers = AgentsMdInstructionLayers {
         user: None,
         project: None,
         child_agents_md_enabled: false,
+        ..Default::default()
     };
 
     let diagnostics =
@@ -85,7 +89,31 @@ fn promoted_learned_pack_is_inactive_until_later_issues() {
         .expect("learned layer exists");
 
     assert!(!learned.active);
-    assert_eq!(learned.source, "context_pack_loader_pending");
+    assert_eq!(learned.source, "not_configured");
+}
+
+#[test]
+fn promoted_learned_pack_reports_active_source() {
+    let codex_home = abs("/tmp/aegis-home");
+    let cwd = abs("/tmp/project");
+    let layers = AgentsMdInstructionLayers {
+        promoted_learned_context_pack: Some(ContextPackGuidanceLayer {
+            contents: "learned guidance".to_string(),
+            sources: vec![abs("/tmp/aegis-home/context-packs/learned.toml")],
+            pack_ids: vec!["learned:example".to_string()],
+        }),
+        ..Default::default()
+    };
+
+    let diagnostics =
+        build_static_prompt_layer_diagnostics(&codex_home, &cwd, "base guidance", &layers);
+    let learned = diagnostics
+        .iter()
+        .find(|layer| layer.kind == PromptLayerKind::PromotedLearnedPack)
+        .expect("learned layer exists");
+
+    assert!(learned.active);
+    assert_eq!(learned.source, "$CODEX_HOME/context-packs/learned.toml");
 }
 
 #[test]

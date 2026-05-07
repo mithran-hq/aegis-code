@@ -1,4 +1,5 @@
 use crate::agents_md::AgentsMdInstructionLayers;
+use crate::context_packs::redact_context_pack_sources;
 use crate::state::MethodStatePersistenceStatus;
 use codex_protocol::ThreadId;
 use codex_protocol::method_state::MethodIssueProvider;
@@ -77,19 +78,47 @@ pub(crate) fn build_static_prompt_layer_diagnostics(
         .user
         .as_ref()
         .is_some_and(|text| !text.trim().is_empty())
+        || instruction_layers.user_context_pack.is_some()
         || instruction_layers.child_agents_md_enabled;
-    let user_source = if instruction_layers.user.is_some() {
-        "user_config_or_global_agents"
-    } else if instruction_layers.child_agents_md_enabled {
-        "child_agents_md_feature"
-    } else {
-        "not_configured"
-    };
-    let project_sources = instruction_layers
-        .project
+    let user_source = source_summary(
+        [
+            instruction_layers
+                .user
+                .is_some()
+                .then(|| "user_config_or_global_agents".to_string()),
+            instruction_layers
+                .user_context_pack
+                .as_ref()
+                .map(|pack| redact_context_pack_sources(&pack.sources, codex_home, cwd)),
+            instruction_layers
+                .child_agents_md_enabled
+                .then(|| "child_agents_md_feature".to_string()),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    let project_active =
+        instruction_layers.project.is_some() || instruction_layers.project_context_pack.is_some();
+    let project_sources = source_summary(
+        [
+            instruction_layers
+                .project
+                .as_ref()
+                .map(|project| redact_sources(&project.sources, codex_home, cwd)),
+            instruction_layers
+                .project_context_pack
+                .as_ref()
+                .map(|pack| redact_context_pack_sources(&pack.sources, codex_home, cwd)),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    let learned_sources = instruction_layers
+        .promoted_learned_context_pack
         .as_ref()
-        .map(|project| redact_sources(&project.sources, codex_home, cwd))
+        .map(|pack| redact_context_pack_sources(&pack.sources, codex_home, cwd))
         .unwrap_or_else(|| "not_configured".to_string());
+    let learned_active = instruction_layers.promoted_learned_context_pack.is_some();
 
     let base_active = !base_instructions.trim().is_empty();
 
@@ -110,23 +139,30 @@ pub(crate) fn build_static_prompt_layer_diagnostics(
         ),
         PromptLayerDiagnostic::new(
             PromptLayerKind::ProjectPack,
-            instruction_layers.project.is_some(),
+            project_active,
             PromptLayerRole::User,
             project_sources,
-            if instruction_layers.project.is_some() {
-                "active"
-            } else {
-                "inactive"
-            },
+            if project_active { "active" } else { "inactive" },
         ),
         PromptLayerDiagnostic::new(
             PromptLayerKind::PromotedLearnedPack,
-            false,
+            learned_active,
             PromptLayerRole::User,
-            "context_pack_loader_pending",
-            "inactive_until_issues_11_to_13",
+            learned_sources,
+            if learned_active { "active" } else { "inactive" },
         ),
     ]
+}
+
+fn source_summary(sources: impl Iterator<Item = String>) -> String {
+    let sources = sources
+        .filter(|source| !source.trim().is_empty())
+        .collect::<Vec<_>>();
+    if sources.is_empty() {
+        "not_configured".to_string()
+    } else {
+        sources.join(",")
+    }
 }
 
 pub(crate) fn current_task_facts_diagnostic(

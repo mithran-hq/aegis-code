@@ -30,6 +30,8 @@ pub mod config;
 pub mod connectors;
 pub mod context;
 mod context_manager;
+pub mod context_packs;
+pub mod doctor;
 mod environment_selection;
 pub mod exec;
 pub mod exec_env;

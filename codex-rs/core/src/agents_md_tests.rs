@@ -1,5 +1,7 @@
 use super::*;
 use crate::config::ConfigBuilder;
+use crate::context_packs::ContextPackKind;
+use crate::context_packs::load_context_packs;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -122,6 +124,56 @@ async fn instruction_layers_separate_user_and_project_guidance() {
     assert_eq!(
         layers.render_user_instructions().as_deref(),
         Some("user guidance\n\n--- project-doc ---\n\nproject guidance")
+    );
+}
+
+#[tokio::test]
+async fn promoted_context_pack_guidance_is_rendered_by_layer() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(tmp.path().join("AGENTS.md"), "project guidance").unwrap();
+    let pack_path = tmp.path().join("user-pack.toml");
+    fs::write(
+        &pack_path,
+        r#"
+schema_version = 1
+pack_id = "user:test"
+kind = "user"
+name = "Test user pack"
+
+[compatibility]
+schema = "1"
+
+[[guidance]]
+id = "guidance:test"
+category = "method"
+text = "Context pack guidance"
+
+[promotion]
+status = "promoted"
+"#,
+    )
+    .unwrap();
+
+    let mut config = make_config(&tmp, /*limit*/ 4096, Some("user guidance")).await;
+    config.context_packs =
+        load_context_packs(LOCAL_FS.as_ref(), &[tmp.abs().join("user-pack.toml")]).await;
+
+    let layers = instruction_layers(&config).await;
+
+    assert!(layers.user_context_pack.is_some());
+    assert_eq!(
+        layers.render_user_instructions().as_deref(),
+        Some(
+            "user guidance\n\n--- context-pack:user:test ---\n\nContext pack guidance\n\n--- project-doc ---\n\nproject guidance"
+        )
+    );
+    assert!(layers.project_context_pack.is_none());
+    assert!(layers.promoted_learned_context_pack.is_none());
+    assert!(
+        config
+            .context_packs
+            .guidance_layer(ContextPackKind::User)
+            .is_some()
     );
 }
 

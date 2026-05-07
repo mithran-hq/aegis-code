@@ -1,6 +1,8 @@
 use crate::agents_md::AgentsMdManager;
 use crate::config::edit::ConfigEdit;
 use crate::config::edit::ConfigEditsBuilder;
+use crate::context_packs::ContextPackSet;
+use crate::context_packs::load_context_packs;
 use crate::path_utils::normalize_for_native_workdir;
 use crate::unified_exec::DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS;
 use crate::unified_exec::MIN_EMPTY_YIELD_TIME_MS;
@@ -447,6 +449,9 @@ pub struct Config {
 
     /// User-provided instructions from AGENTS.md.
     pub user_instructions: Option<String>,
+
+    /// Validated context packs configured for prompt assembly and diagnostics.
+    pub context_packs: ContextPackSet,
 
     /// Base instructions override.
     pub base_instructions: Option<String>,
@@ -2978,6 +2983,8 @@ impl Config {
             .value
             .set(effective_permission_profile)
             .map_err(std::io::Error::from)?;
+        let context_pack_paths = cfg.context_pack_paths.clone().unwrap_or_default();
+        let context_packs = load_context_packs(fs, &context_pack_paths).await;
         let config = Self {
             model,
             service_tier,
@@ -3002,6 +3009,7 @@ impl Config {
             enforce_residency: enforce_residency.value,
             notify: cfg.notify,
             user_instructions,
+            context_packs,
             base_instructions,
             personality,
             developer_instructions,

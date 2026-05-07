@@ -16,6 +16,8 @@
 //! 3.  We do **not** walk past the project root.
 
 use crate::config::Config;
+use crate::context_packs::ContextPackGuidanceLayer;
+use crate::context_packs::ContextPackKind;
 use codex_app_server_protocol::ConfigLayerSource;
 use codex_config::ConfigLayerStackOrdering;
 use codex_config::default_project_root_markers;
@@ -53,10 +55,13 @@ pub(crate) struct LoadedAgentsMd {
     pub(crate) path: AbsolutePathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AgentsMdInstructionLayers {
     pub(crate) user: Option<String>,
+    pub(crate) user_context_pack: Option<ContextPackGuidanceLayer>,
     pub(crate) project: Option<ProjectAgentsMdLayer>,
+    pub(crate) project_context_pack: Option<ContextPackGuidanceLayer>,
+    pub(crate) promoted_learned_context_pack: Option<ContextPackGuidanceLayer>,
     pub(crate) child_agents_md_enabled: bool,
 }
 
@@ -74,11 +79,20 @@ impl AgentsMdInstructionLayers {
             output.push_str(&instructions);
         }
 
+        if let Some(pack) = &self.user_context_pack {
+            append_with_blank_line(&mut output, &pack.contents);
+        }
+
         if let Some(project) = &self.project {
-            if !output.is_empty() {
-                output.push_str(AGENTS_MD_SEPARATOR);
-            }
-            output.push_str(&project.contents);
+            append_with_project_separator(&mut output, &project.contents);
+        }
+
+        if let Some(pack) = &self.project_context_pack {
+            append_with_blank_line(&mut output, &pack.contents);
+        }
+
+        if let Some(pack) = &self.promoted_learned_context_pack {
+            append_with_blank_line(&mut output, &pack.contents);
         }
 
         if self.child_agents_md_enabled {
@@ -90,6 +104,20 @@ impl AgentsMdInstructionLayers {
 
         (!output.is_empty()).then_some(output)
     }
+}
+
+fn append_with_project_separator(output: &mut String, contents: &str) {
+    if !output.is_empty() {
+        output.push_str(AGENTS_MD_SEPARATOR);
+    }
+    output.push_str(contents);
+}
+
+fn append_with_blank_line(output: &mut String, contents: &str) {
+    if !output.is_empty() {
+        output.push_str("\n\n");
+    }
+    output.push_str(contents);
 }
 
 impl<'a> AgentsMdManager<'a> {
@@ -144,7 +172,19 @@ impl<'a> AgentsMdManager<'a> {
         let Some(environment) = environment else {
             return AgentsMdInstructionLayers {
                 user: self.config.user_instructions.clone(),
+                user_context_pack: self
+                    .config
+                    .context_packs
+                    .guidance_layer(ContextPackKind::User),
                 project: None,
+                project_context_pack: self
+                    .config
+                    .context_packs
+                    .guidance_layer(ContextPackKind::Project),
+                promoted_learned_context_pack: self
+                    .config
+                    .context_packs
+                    .guidance_layer(ContextPackKind::Learned),
                 child_agents_md_enabled: self.config.features.enabled(Feature::ChildAgentsMd),
             };
         };
@@ -166,7 +206,19 @@ impl<'a> AgentsMdManager<'a> {
 
         AgentsMdInstructionLayers {
             user: self.config.user_instructions.clone(),
+            user_context_pack: self
+                .config
+                .context_packs
+                .guidance_layer(ContextPackKind::User),
             project,
+            project_context_pack: self
+                .config
+                .context_packs
+                .guidance_layer(ContextPackKind::Project),
+            promoted_learned_context_pack: self
+                .config
+                .context_packs
+                .guidance_layer(ContextPackKind::Learned),
             child_agents_md_enabled: self.config.features.enabled(Feature::ChildAgentsMd),
         }
     }

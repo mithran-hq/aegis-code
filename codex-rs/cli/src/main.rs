@@ -135,6 +135,9 @@ enum Subcommand {
     /// Update Aegis Code to the latest version.
     Update,
 
+    /// Inspect local configuration and context pack status.
+    Doctor(DoctorCommand),
+
     /// Run commands within an Aegis-provided sandbox.
     Sandbox(SandboxArgs),
 
@@ -195,6 +198,13 @@ struct CompletionCommand {
     /// Shell to generate completions for
     #[clap(value_enum, default_value_t = Shell::Bash)]
     shell: Shell,
+}
+
+#[derive(Debug, Parser)]
+struct DoctorCommand {
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -1107,6 +1117,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 .await?;
             }
         },
+        Some(Subcommand::Doctor(cmd)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "doctor",
+            )?;
+            run_doctor_command(cmd, root_config_overrides, interactive).await?;
+        }
         Some(Subcommand::Debug(DebugCommand { subcommand })) => match subcommand {
             DebugSubcommand::Models(cmd) => {
                 reject_remote_mode_for_subcommand(
@@ -1377,6 +1395,59 @@ async fn run_debug_trace_reduce_command(cmd: DebugTraceReduceCommand) -> anyhow:
     let reduced_json = serde_json::to_vec_pretty(&trace)?;
     tokio::fs::write(&output, reduced_json).await?;
     println!("{}", output.display());
+
+    Ok(())
+}
+
+async fn run_doctor_command(
+    cmd: DoctorCommand,
+    root_config_overrides: CliConfigOverrides,
+    interactive: TuiCli,
+) -> anyhow::Result<()> {
+    let shared = interactive.shared.into_inner();
+    let mut cli_kv_overrides = root_config_overrides
+        .parse_overrides()
+        .map_err(anyhow::Error::msg)?;
+    if interactive.web_search {
+        cli_kv_overrides.push((
+            "web_search".to_string(),
+            toml::Value::String("live".to_string()),
+        ));
+    }
+
+    let approval_policy = if shared.dangerously_bypass_approvals_and_sandbox {
+        Some(AskForApproval::Never)
+    } else {
+        interactive.approval_policy.map(Into::into)
+    };
+    let sandbox_mode = if shared.dangerously_bypass_approvals_and_sandbox {
+        Some(codex_protocol::config_types::SandboxMode::DangerFullAccess)
+    } else {
+        shared.sandbox_mode.map(Into::into)
+    };
+    let overrides = ConfigOverrides {
+        model: shared.model,
+        config_profile: shared.config_profile,
+        approval_policy,
+        sandbox_mode,
+        cwd: shared.cwd,
+        show_raw_agent_reasoning: shared.oss.then_some(true),
+        ephemeral: Some(true),
+        additional_writable_roots: shared.add_dir,
+        ..Default::default()
+    };
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides).await?;
+    let report = codex_core::doctor::build_doctor_report(&config);
+
+    if cmd.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!(
+            "{}",
+            codex_core::doctor::format_doctor_report_human(&report)
+        );
+    }
 
     Ok(())
 }
@@ -1996,6 +2067,17 @@ mod tests {
         };
 
         assert!(cmd.bundled);
+    }
+
+    #[test]
+    fn doctor_parses_json_flag() {
+        let cli = MultitoolCli::try_parse_from(["aegis", "doctor", "--json"]).expect("parse");
+
+        let Some(Subcommand::Doctor(cmd)) = cli.subcommand else {
+            panic!("expected doctor subcommand");
+        };
+
+        assert!(cmd.json);
     }
 
     #[test]

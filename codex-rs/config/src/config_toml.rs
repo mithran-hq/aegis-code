@@ -175,6 +175,10 @@ pub struct ConfigToml {
     /// Compact prompt used for history compaction.
     pub compact_prompt: Option<String>,
 
+    /// Explicit context pack TOML files to load during prompt assembly.
+    #[serde(default)]
+    pub context_pack_paths: Option<Vec<AbsolutePathBuf>>,
+
     /// Optional commit attribution text for commit message co-author trailers.
     /// This top-level setting only takes effect when `[features].codex_git_commit`
     /// is enabled.

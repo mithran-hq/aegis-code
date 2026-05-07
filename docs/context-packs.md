@@ -4,8 +4,9 @@ Context packs are TOML artifacts that carry reusable Aegis guidance into prompt
 assembly. They define user guidance, project policy, or reviewed learned
 behavior without letting a running session silently rewrite its own prompt.
 
-V1 defines the schema contract only. Loading, validation, promotion, rollback,
-and storage discovery are implemented by later tasks.
+V1 defines the schema contract and the initial explicit-path loader. Promotion
+commands, rollback commands, and automatic storage discovery are implemented by
+later tasks.
 
 ## Layer Model
 
@@ -20,6 +21,24 @@ Aegis Code assembles prompt context in this order:
 Candidate learned packs are inspectable artifacts, but they do not affect active
 prompt behavior until their own `promotion.status` is changed to `promoted` and
 a future session or explicit resume boundary loads them.
+
+## Loading
+
+Aegis Code loads context packs from absolute TOML paths listed in
+`~/.aegis/config.toml`:
+
+```toml
+context_pack_paths = [
+  "/Users/bruno/.aegis/context-packs/user-method.toml",
+  "/Users/bruno/src/project/.aegis/project-policy.toml",
+]
+```
+
+The loader is fail-closed per configured pack. Invalid, unreadable, candidate,
+retired, or schema-incompatible packs remain visible in `aegis doctor`, but they
+do not contribute prompt text. Promoted user and project packs append their
+`guidance.text` to the corresponding user or project layer. Promoted learned
+packs append `guidance.text` to the promoted learned layer.
 
 ## TOML Schema
 

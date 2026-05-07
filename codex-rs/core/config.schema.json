@@ -3859,6 +3859,14 @@
       "description": "Compact prompt used for history compaction.",
       "type": "string"
     },
+    "context_pack_paths": {
+      "default": null,
+      "description": "Explicit context pack TOML files to load during prompt assembly.",
+      "items": {
+        "$ref": "#/definitions/AbsolutePathBuf"
+      },
+      "type": "array"
+    },
     "debug": {
       "allOf": [
         {
