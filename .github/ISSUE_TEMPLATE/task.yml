@@ -1,0 +1,36 @@
+name: Aegis Code task
+description: Implementation-ready child task.
+title: "Task: "
+labels: ["aegis-code:task"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: textarea
+    id: falsifiers
+    attributes:
+      label: Falsifiers
+      description: What would prove this task wrong or incomplete.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+    validations:
+      required: false

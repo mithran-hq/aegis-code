@@ -1,0 +1,7 @@
+Aegis Code
+Copyright 2026 Mithran HQ
+
+This repository is intended to derive from OpenAI Codex, which is licensed under
+the Apache License, Version 2.0. Upstream source has not yet been imported in
+this bootstrap commit. Preserve all required upstream notices when the import
+task lands.

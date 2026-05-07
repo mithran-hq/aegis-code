@@ -1,0 +1,32 @@
+name: Aegis Code plan
+description: Parent issue for an Aegis Code implementation plan.
+title: "Plan: "
+labels: ["aegis-code:plan"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What this plan should make true.
+    validations:
+      required: true
+  - type: textarea
+    id: strategy
+    attributes:
+      label: Strategy
+      description: Key decisions and sequencing.
+    validations:
+      required: true
+  - type: textarea
+    id: child_issues
+    attributes:
+      label: Child issues
+      description: Links to implementation task issues.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence required for closure
+    validations:
+      required: true
