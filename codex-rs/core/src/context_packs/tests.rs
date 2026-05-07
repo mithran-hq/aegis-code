@@ -13,6 +13,10 @@ fn write_pack(dir: &TempDir, name: &str, contents: &str) -> AbsolutePathBuf {
     abs(path)
 }
 
+fn read_pack(path: &AbsolutePathBuf) -> String {
+    std::fs::read_to_string(path).expect("read pack")
+}
+
 async fn load(paths: &[AbsolutePathBuf]) -> ContextPackSet {
     load_context_packs(LOCAL_FS.as_ref(), paths).await
 }
@@ -231,6 +235,238 @@ async fn retired_pack_is_visible_but_inactive() {
     assert_eq!(set.diagnostics()[0].reason, "promotion_status_retired");
     assert!(!set.diagnostics()[0].active);
     assert!(set.guidance_layer(ContextPackKind::User).is_none());
+}
+
+#[test]
+fn promote_candidate_records_audit_and_retires_prior_active_pack() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = write_pack(
+        &dir,
+        "active.toml",
+        &pack("learned", "promoted", "Active guidance")
+            .replace("learned:example", "learned:active"),
+    );
+    let candidate = write_pack(
+        &dir,
+        "candidate.toml",
+        &pack("learned", "candidate", "Candidate guidance")
+            .replace("learned:example", "learned:candidate"),
+    );
+
+    let result = promote_context_pack(
+        &[active.clone(), candidate.clone()],
+        "learned:candidate",
+        "Tester <tester@example.com>",
+        &["issue:13".to_string()],
+        Some("Reviewed evidence"),
+        "2026-05-07T12:00:00Z",
+        false,
+    )
+    .expect("promote");
+
+    assert!(!result.dry_run);
+    assert_eq!(result.changes.len(), 2);
+    let active_toml = read_pack(&active);
+    assert!(active_toml.contains(r#"status = "retired""#));
+    assert!(active_toml.contains(r#"retired_by = "Tester <tester@example.com>""#));
+    assert!(active_toml.contains(r#"retire_reason = "Retired by promotion of learned:candidate""#));
+
+    let candidate_toml = read_pack(&candidate);
+    assert!(candidate_toml.contains(r#"status = "promoted""#));
+    assert!(candidate_toml.contains(r#"promoted_at = "2026-05-07T12:00:00Z""#));
+    assert!(candidate_toml.contains(r#"promoted_by = "Tester <tester@example.com>""#));
+    assert!(candidate_toml.contains(r#"source_evidence = ["issue:13"]"#));
+    assert!(candidate_toml.contains(r#"previous_pack_id = "learned:active""#));
+    assert!(candidate_toml.contains(r#"reason = "Reviewed evidence""#));
+}
+
+#[test]
+fn promote_requires_source_evidence() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let candidate = write_pack(
+        &dir,
+        "candidate.toml",
+        &pack("learned", "candidate", "Candidate guidance"),
+    );
+
+    let err = promote_context_pack(
+        &[candidate],
+        "learned:example",
+        "Tester",
+        &[],
+        Some("Reviewed"),
+        "2026-05-07T12:00:00Z",
+        false,
+    )
+    .expect_err("promotion without evidence should fail");
+
+    assert!(err.to_string().contains("requires at least one --evidence"));
+}
+
+#[test]
+fn rollback_restores_prior_promoted_pack() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let current = write_pack(
+        &dir,
+        "current.toml",
+        &pack("learned", "promoted", "Current guidance")
+            .replace("learned:example", "learned:current")
+            .replace("learned:previous", "learned:previous"),
+    );
+    let previous = write_pack(
+        &dir,
+        "previous.toml",
+        &pack("learned", "promoted", "Previous guidance")
+            .replace(
+                "pack_id = \"learned:example\"",
+                "pack_id = \"learned:previous\"",
+            )
+            .replace("status = \"promoted\"", "status = \"retired\"")
+            .replace(
+                "previous_pack_id = \"learned:previous\"",
+                "previous_pack_id = \"learned:earlier\"",
+            ),
+    );
+
+    let result = rollback_context_pack(
+        &[current.clone(), previous.clone()],
+        None,
+        "Tester",
+        "Rollback after review",
+        "2026-05-07T12:30:00Z",
+        false,
+    )
+    .expect("rollback");
+
+    assert_eq!(result.changes.len(), 2);
+    let current_toml = read_pack(&current);
+    assert!(current_toml.contains(r#"status = "retired""#));
+    assert!(current_toml.contains(r#"retire_reason = "Rollback after review""#));
+
+    let previous_toml = read_pack(&previous);
+    assert!(previous_toml.contains(r#"status = "promoted""#));
+    assert!(previous_toml.contains(r#"promoted_by = "Tester""#));
+    assert!(previous_toml.contains(r#"source_evidence = ["rollback:learned:current"]"#));
+    assert!(previous_toml.contains(r#"previous_pack_id = "learned:earlier""#));
+    assert!(previous_toml.contains(r#"reason = "Rollback after review""#));
+}
+
+#[test]
+fn rollback_fails_when_active_pack_has_no_prior_version() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = write_pack(
+        &dir,
+        "active.toml",
+        &pack("learned", "promoted", "Active guidance").replace(
+            "previous_pack_id = \"learned:previous\"",
+            "previous_pack_id = \"\"",
+        ),
+    );
+
+    let err = rollback_context_pack(
+        &[active],
+        None,
+        "Tester",
+        "Rollback",
+        "2026-05-07T12:30:00Z",
+        false,
+    )
+    .expect_err("rollback without prior pack should fail");
+
+    assert!(err.to_string().contains("has no prior active version"));
+}
+
+#[test]
+fn retire_records_actor_timestamp_and_reason() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let user = write_pack(
+        &dir,
+        "user.toml",
+        &pack("user", "promoted", "User guidance"),
+    );
+
+    retire_context_pack(
+        &[user.clone()],
+        "user:example",
+        "Tester",
+        "Superseded",
+        "2026-05-07T13:00:00Z",
+        false,
+    )
+    .expect("retire");
+
+    let user_toml = read_pack(&user);
+    assert!(user_toml.contains(r#"status = "retired""#));
+    assert!(user_toml.contains(r#"retired_at = "2026-05-07T13:00:00Z""#));
+    assert!(user_toml.contains(r#"retired_by = "Tester""#));
+    assert!(user_toml.contains(r#"retire_reason = "Superseded""#));
+}
+
+#[test]
+fn lineage_reports_broken_prior_pack_id() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let current = write_pack(
+        &dir,
+        "current.toml",
+        &pack("learned", "promoted", "Current guidance")
+            .replace("learned:example", "learned:current")
+            .replace("learned:previous", "learned:missing"),
+    );
+
+    let lineage = context_pack_lineage(&[current], None).expect("lineage");
+
+    assert_eq!(lineage.len(), 1);
+    assert_eq!(lineage[0].pack_id, "learned:current");
+    assert_eq!(
+        lineage[0].broken_previous_pack_id.as_deref(),
+        Some("learned:missing")
+    );
+}
+
+#[tokio::test]
+async fn loaded_context_pack_set_does_not_reload_after_promotion() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = write_pack(
+        &dir,
+        "active.toml",
+        &pack("learned", "promoted", "Active guidance")
+            .replace("learned:example", "learned:active"),
+    );
+    let candidate = write_pack(
+        &dir,
+        "candidate.toml",
+        &pack("learned", "candidate", "Candidate guidance")
+            .replace("learned:example", "learned:candidate"),
+    );
+    let paths = vec![active, candidate];
+    let loaded = load(&paths).await;
+
+    promote_context_pack(
+        &paths,
+        "learned:candidate",
+        "Tester",
+        &["issue:13".to_string()],
+        Some("Reviewed"),
+        "2026-05-07T12:00:00Z",
+        false,
+    )
+    .expect("promote");
+
+    assert!(
+        loaded
+            .guidance_layer(ContextPackKind::Learned)
+            .expect("loaded learned layer")
+            .contents
+            .contains("Active guidance")
+    );
+
+    let reloaded = load(&paths).await;
+    let reloaded_guidance = reloaded
+        .guidance_layer(ContextPackKind::Learned)
+        .expect("reloaded learned layer")
+        .contents;
+    assert!(reloaded_guidance.contains("Candidate guidance"));
+    assert!(!reloaded_guidance.contains("Active guidance"));
 }
 
 #[tokio::test]

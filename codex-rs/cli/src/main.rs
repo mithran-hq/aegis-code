@@ -1,6 +1,7 @@
 use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
+use clap::ValueEnum;
 use clap_complete::Shell;
 use clap_complete::generate;
 use codex_arg0::Arg0DispatchPaths;
@@ -19,6 +20,18 @@ use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
 use codex_cloud_tasks::Cli as CloudTasksCli;
+use codex_core::context_packs::ContextPackDiagnostic;
+use codex_core::context_packs::ContextPackDiagnosticStatus;
+use codex_core::context_packs::ContextPackInspection;
+use codex_core::context_packs::ContextPackKind;
+use codex_core::context_packs::ContextPackLifecycleAction;
+use codex_core::context_packs::ContextPackLifecycleResult;
+use codex_core::context_packs::PromotionStatus;
+use codex_core::context_packs::context_pack_lineage;
+use codex_core::context_packs::inspect_context_pack_path;
+use codex_core::context_packs::promote_context_pack;
+use codex_core::context_packs::retire_context_pack;
+use codex_core::context_packs::rollback_context_pack;
 use codex_exec::Cli as ExecCli;
 use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
@@ -37,6 +50,7 @@ use codex_utils_cli::CliConfigOverrides;
 use owo_colors::OwoColorize;
 use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 use supports_color::Stream;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -138,6 +152,9 @@ enum Subcommand {
     /// Inspect local configuration and context pack status.
     Doctor(DoctorCommand),
 
+    /// Manage configured context-pack lifecycle state.
+    ContextPack(ContextPackCommand),
+
     /// Run commands within an Aegis-provided sandbox.
     Sandbox(SandboxArgs),
 
@@ -205,6 +222,117 @@ struct DoctorCommand {
     /// Emit machine-readable JSON.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Parser)]
+#[command(bin_name = "aegis context-pack")]
+struct ContextPackCommand {
+    #[command(subcommand)]
+    subcommand: ContextPackSubcommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ContextPackSubcommand {
+    /// List configured context packs.
+    List(ContextPackListCommand),
+    /// Inspect one configured context pack.
+    Inspect(ContextPackInspectCommand),
+    /// Promote a learned candidate pack.
+    Promote(ContextPackPromoteCommand),
+    /// Retire a configured context pack.
+    Retire(ContextPackRetireCommand),
+    /// Restore the prior promoted learned pack.
+    Rollback(ContextPackRollbackCommand),
+    /// Show learned-pack active lineage.
+    Lineage(ContextPackLineageCommand),
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackListCommand {
+    #[arg(long)]
+    json: bool,
+    #[arg(long, value_enum)]
+    kind: Option<ContextPackKindArg>,
+    #[arg(long, value_enum, default_value_t = ContextPackStatusArg::All)]
+    status: ContextPackStatusArg,
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackInspectCommand {
+    selector: String,
+    #[arg(long)]
+    json: bool,
+    #[arg(long)]
+    show_guidance: bool,
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackPromoteCommand {
+    selector: String,
+    #[arg(long = "evidence", required = true, num_args = 1..)]
+    evidence: Vec<String>,
+    #[arg(long)]
+    actor: Option<String>,
+    #[arg(long)]
+    reason: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackRetireCommand {
+    selector: String,
+    #[arg(long)]
+    reason: String,
+    #[arg(long)]
+    actor: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackRollbackCommand {
+    selector: Option<String>,
+    #[arg(long)]
+    reason: String,
+    #[arg(long)]
+    actor: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackLineageCommand {
+    selector: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ContextPackKindArg {
+    User,
+    Project,
+    Learned,
+}
+
+impl From<ContextPackKindArg> for ContextPackKind {
+    fn from(value: ContextPackKindArg) -> Self {
+        match value {
+            ContextPackKindArg::User => ContextPackKind::User,
+            ContextPackKindArg::Project => ContextPackKind::Project,
+            ContextPackKindArg::Learned => ContextPackKind::Learned,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ContextPackStatusArg {
+    Candidate,
+    Promoted,
+    Retired,
+    Invalid,
+    Unreadable,
+    All,
 }
 
 #[derive(Debug, Parser)]
@@ -1125,6 +1253,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             run_doctor_command(cmd, root_config_overrides, interactive).await?;
         }
+        Some(Subcommand::ContextPack(cmd)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "context-pack",
+            )?;
+            run_context_pack_command(cmd, root_config_overrides, interactive).await?;
+        }
         Some(Subcommand::Debug(DebugCommand { subcommand })) => match subcommand {
             DebugSubcommand::Models(cmd) => {
                 reject_remote_mode_for_subcommand(
@@ -1404,6 +1540,121 @@ async fn run_doctor_command(
     root_config_overrides: CliConfigOverrides,
     interactive: TuiCli,
 ) -> anyhow::Result<()> {
+    let config = load_config_for_local_command(root_config_overrides, interactive).await?;
+    let report = codex_core::doctor::build_doctor_report(&config);
+
+    if cmd.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!(
+            "{}",
+            codex_core::doctor::format_doctor_report_human(&report)
+        );
+    }
+
+    Ok(())
+}
+
+async fn run_context_pack_command(
+    cmd: ContextPackCommand,
+    root_config_overrides: CliConfigOverrides,
+    interactive: TuiCli,
+) -> anyhow::Result<()> {
+    let config = load_config_for_local_command(root_config_overrides, interactive).await?;
+    let paths = configured_context_pack_paths(&config)?;
+
+    match cmd.subcommand {
+        ContextPackSubcommand::List(cmd) => {
+            let mut diagnostics = config.context_packs.diagnostics().to_vec();
+            if let Some(kind) = cmd.kind {
+                let kind = ContextPackKind::from(kind);
+                diagnostics.retain(|diagnostic| diagnostic.kind == Some(kind));
+            }
+            if cmd.status != ContextPackStatusArg::All {
+                diagnostics.retain(|diagnostic| diagnostic_status_matches(diagnostic, cmd.status));
+            }
+            if cmd.json {
+                println!("{}", serde_json::to_string_pretty(&diagnostics)?);
+            } else {
+                print_context_pack_list(&diagnostics);
+            }
+        }
+        ContextPackSubcommand::Inspect(cmd) => {
+            let path = resolve_context_pack_path(&config, &cmd.selector)?;
+            let inspection = inspect_context_pack_path(&path, cmd.show_guidance)?;
+            if cmd.json {
+                println!("{}", serde_json::to_string_pretty(&inspection)?);
+            } else {
+                print_context_pack_inspection(&inspection);
+            }
+        }
+        ContextPackSubcommand::Promote(cmd) => {
+            let actor = cmd.actor.unwrap_or_else(default_context_pack_actor);
+            let now = context_pack_timestamp();
+            let result = promote_context_pack(
+                &paths,
+                &cmd.selector,
+                &actor,
+                &cmd.evidence,
+                cmd.reason.as_deref(),
+                &now,
+                cmd.dry_run,
+            )?;
+            print_context_pack_lifecycle_result(&result);
+        }
+        ContextPackSubcommand::Retire(cmd) => {
+            let actor = cmd.actor.unwrap_or_else(default_context_pack_actor);
+            let now = context_pack_timestamp();
+            let result = retire_context_pack(
+                &paths,
+                &cmd.selector,
+                &actor,
+                &cmd.reason,
+                &now,
+                cmd.dry_run,
+            )?;
+            print_context_pack_lifecycle_result(&result);
+        }
+        ContextPackSubcommand::Rollback(cmd) => {
+            let actor = cmd.actor.unwrap_or_else(default_context_pack_actor);
+            let now = context_pack_timestamp();
+            let result = rollback_context_pack(
+                &paths,
+                cmd.selector.as_deref(),
+                &actor,
+                &cmd.reason,
+                &now,
+                cmd.dry_run,
+            )?;
+            print_context_pack_lifecycle_result(&result);
+        }
+        ContextPackSubcommand::Lineage(cmd) => {
+            let lineage = context_pack_lineage(&paths, cmd.selector.as_deref())?;
+            if cmd.json {
+                println!("{}", serde_json::to_string_pretty(&lineage)?);
+            } else {
+                for entry in lineage {
+                    let previous = entry.previous_pack_id.unwrap_or_else(|| "none".to_string());
+                    let broken = entry
+                        .broken_previous_pack_id
+                        .map(|pack_id| format!(" broken_previous={pack_id}"))
+                        .unwrap_or_default();
+                    println!(
+                        "{}  {:?}  previous={}{}",
+                        entry.pack_id, entry.status, previous, broken
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn load_config_for_local_command(
+    root_config_overrides: CliConfigOverrides,
+    interactive: TuiCli,
+) -> anyhow::Result<Config> {
     let shared = interactive.shared.into_inner();
     let mut cli_kv_overrides = root_config_overrides
         .parse_overrides()
@@ -1436,20 +1687,251 @@ async fn run_doctor_command(
         additional_writable_roots: shared.add_dir,
         ..Default::default()
     };
-    let config =
-        Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides).await?;
-    let report = codex_core::doctor::build_doctor_report(&config);
+    Ok(Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides).await?)
+}
 
-    if cmd.json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
-    } else {
-        print!(
-            "{}",
-            codex_core::doctor::format_doctor_report_human(&report)
-        );
+fn configured_context_pack_paths(config: &Config) -> anyhow::Result<Vec<AbsolutePathBuf>> {
+    config
+        .context_packs
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| {
+            AbsolutePathBuf::try_from(PathBuf::from(&diagnostic.path)).map_err(|_| {
+                anyhow::anyhow!(
+                    "configured context pack path is not absolute: {}",
+                    diagnostic.path
+                )
+            })
+        })
+        .collect()
+}
+
+fn resolve_context_pack_path(config: &Config, selector: &str) -> anyhow::Result<AbsolutePathBuf> {
+    let trimmed = selector.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("context pack selector must not be empty");
     }
 
-    Ok(())
+    let matches = config
+        .context_packs
+        .diagnostics()
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.pack_id.as_deref() == Some(trimmed) || diagnostic.path == trimmed
+        })
+        .collect::<Vec<_>>();
+
+    match matches.as_slice() {
+        [diagnostic] => AbsolutePathBuf::try_from(PathBuf::from(&diagnostic.path)).map_err(|_| {
+            anyhow::anyhow!(
+                "configured context pack path is not absolute: {}",
+                diagnostic.path
+            )
+        }),
+        [] => anyhow::bail!("no configured context pack matches `{trimmed}`"),
+        _ => anyhow::bail!("multiple configured context packs match `{trimmed}`"),
+    }
+}
+
+fn diagnostic_status_matches(
+    diagnostic: &ContextPackDiagnostic,
+    status: ContextPackStatusArg,
+) -> bool {
+    match status {
+        ContextPackStatusArg::Candidate => {
+            diagnostic.diagnostic_status() == ContextPackDiagnosticStatus::Candidate
+        }
+        ContextPackStatusArg::Promoted => {
+            diagnostic.diagnostic_status() == ContextPackDiagnosticStatus::Promoted
+        }
+        ContextPackStatusArg::Retired => {
+            diagnostic.diagnostic_status() == ContextPackDiagnosticStatus::Retired
+        }
+        ContextPackStatusArg::Invalid => {
+            diagnostic.diagnostic_status() == ContextPackDiagnosticStatus::Invalid
+        }
+        ContextPackStatusArg::Unreadable => {
+            diagnostic.diagnostic_status() == ContextPackDiagnosticStatus::Unreadable
+        }
+        ContextPackStatusArg::All => true,
+    }
+}
+
+fn print_context_pack_list(diagnostics: &[ContextPackDiagnostic]) {
+    if diagnostics.is_empty() {
+        println!("No configured context packs match.");
+        return;
+    }
+
+    for diagnostic in diagnostics {
+        let pack_id = diagnostic.pack_id.as_deref().unwrap_or("unknown");
+        println!(
+            "{}  {}  {}  active={}  {}",
+            pack_id,
+            kind_label(diagnostic.kind),
+            diagnostic_status_label(diagnostic.diagnostic_status()),
+            diagnostic.active,
+            diagnostic.path
+        );
+        if !diagnostic.active {
+            println!("  reason: {}", diagnostic.reason);
+        }
+    }
+}
+
+fn print_context_pack_inspection(inspection: &ContextPackInspection) {
+    println!("{}  {}", inspection.pack_id, inspection.path);
+    println!(
+        "kind={} schema={} status={}",
+        kind_label(Some(inspection.kind)),
+        inspection.schema_version,
+        promotion_status_label(inspection.promotion.status)
+    );
+    println!("name={}", inspection.name);
+    if let Some(description) = &inspection.description {
+        println!("description={description}");
+    }
+    if let Some(promoted_at) = &inspection.promotion.promoted_at
+        && !promoted_at.is_empty()
+    {
+        println!("promoted_at={promoted_at}");
+    }
+    if let Some(promoted_by) = &inspection.promotion.promoted_by
+        && !promoted_by.is_empty()
+    {
+        println!("promoted_by={promoted_by}");
+    }
+    if !inspection.promotion.source_evidence.is_empty() {
+        println!(
+            "source_evidence={}",
+            inspection.promotion.source_evidence.join(", ")
+        );
+    }
+    if let Some(retired_at) = &inspection.promotion.retired_at {
+        println!("retired_at={retired_at}");
+    }
+    if let Some(retired_by) = &inspection.promotion.retired_by {
+        println!("retired_by={retired_by}");
+    }
+    if let Some(reason) = &inspection.promotion.retire_reason {
+        println!("retire_reason={reason}");
+    }
+    if let Some(rollback) = &inspection.rollback {
+        println!(
+            "rollback_previous={}",
+            rollback.previous_pack_id.as_deref().unwrap_or("")
+        );
+        println!(
+            "rollback_reason={}",
+            rollback.reason.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(provenance) = &inspection.provenance {
+        if let Some(author) = &provenance.author {
+            println!("provenance_author={author}");
+        }
+        if let Some(source) = &provenance.source {
+            println!("provenance_source={source}");
+        }
+        if !provenance.source_refs.is_empty() {
+            println!("source_refs={}", provenance.source_refs.join(", "));
+        }
+    }
+    for requirement in &inspection.evidence_requirements {
+        println!("evidence:{}  {}", requirement.id, requirement.description);
+    }
+    if let Some(guidance) = &inspection.guidance {
+        for item in guidance {
+            println!("guidance:{} [{}]", item.id, item.category);
+            println!("{}", item.text);
+            if !item.falsifiers.is_empty() {
+                println!("falsifiers={}", item.falsifiers.join(" | "));
+            }
+        }
+    }
+}
+
+fn print_context_pack_lifecycle_result(result: &ContextPackLifecycleResult) {
+    if result.dry_run {
+        println!("Dry run; no files changed.");
+    }
+    if result.changes.is_empty() {
+        println!("No context-pack lifecycle changes.");
+        return;
+    }
+
+    for change in &result.changes {
+        println!(
+            "{} {}: {} -> {} ({})",
+            lifecycle_action_label(change.action),
+            change.pack_id,
+            promotion_status_label(change.from),
+            promotion_status_label(change.to),
+            change.path
+        );
+    }
+}
+
+fn default_context_pack_actor() -> String {
+    let name = git_config_value("user.name");
+    let email = git_config_value("user.email");
+    match (name, email) {
+        (Some(name), Some(email)) => format!("{name} <{email}>"),
+        (Some(name), None) => name,
+        (None, Some(email)) => email,
+        (None, None) => std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()),
+    }
+}
+
+fn git_config_value(key: &str) -> Option<String> {
+    let output = ProcessCommand::new("git")
+        .args(["config", "--get", key])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+fn context_pack_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+fn kind_label(kind: Option<ContextPackKind>) -> &'static str {
+    match kind {
+        Some(ContextPackKind::User) => "user",
+        Some(ContextPackKind::Project) => "project",
+        Some(ContextPackKind::Learned) => "learned",
+        None => "unknown",
+    }
+}
+
+fn diagnostic_status_label(status: ContextPackDiagnosticStatus) -> &'static str {
+    match status {
+        ContextPackDiagnosticStatus::Candidate => "candidate",
+        ContextPackDiagnosticStatus::Promoted => "promoted",
+        ContextPackDiagnosticStatus::Retired => "retired",
+        ContextPackDiagnosticStatus::Invalid => "invalid",
+        ContextPackDiagnosticStatus::Unreadable => "unreadable",
+    }
+}
+
+fn promotion_status_label(status: PromotionStatus) -> &'static str {
+    match status {
+        PromotionStatus::Candidate => "candidate",
+        PromotionStatus::Promoted => "promoted",
+        PromotionStatus::Retired => "retired",
+    }
+}
+
+fn lifecycle_action_label(action: ContextPackLifecycleAction) -> &'static str {
+    match action {
+        ContextPackLifecycleAction::Promote => "promote",
+        ContextPackLifecycleAction::Retire => "retire",
+        ContextPackLifecycleAction::RollbackRestore => "rollback-restore",
+    }
 }
 
 async fn run_debug_prompt_input_command(
@@ -2771,6 +3253,43 @@ mod tests {
             panic!("expected features disable");
         };
         assert_eq!(feature, "shell_tool");
+    }
+
+    #[test]
+    fn context_pack_promote_parses_evidence_and_actor() {
+        let cli = MultitoolCli::try_parse_from([
+            "aegis",
+            "context-pack",
+            "promote",
+            "learned:candidate",
+            "--evidence",
+            "issue:13",
+            "--actor",
+            "Tester",
+            "--reason",
+            "reviewed",
+        ])
+        .expect("parse should succeed");
+
+        let Some(Subcommand::ContextPack(ContextPackCommand { subcommand })) = cli.subcommand
+        else {
+            panic!("expected context-pack subcommand");
+        };
+        let ContextPackSubcommand::Promote(cmd) = subcommand else {
+            panic!("expected promote subcommand");
+        };
+        assert_eq!(cmd.selector, "learned:candidate");
+        assert_eq!(cmd.evidence, vec!["issue:13"]);
+        assert_eq!(cmd.actor.as_deref(), Some("Tester"));
+        assert_eq!(cmd.reason.as_deref(), Some("reviewed"));
+    }
+
+    #[test]
+    fn context_pack_promote_requires_evidence() {
+        let parse_result =
+            MultitoolCli::try_parse_from(["aegis", "context-pack", "promote", "learned:candidate"]);
+
+        assert!(parse_result.is_err());
     }
 
     #[test]

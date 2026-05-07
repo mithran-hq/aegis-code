@@ -4,9 +4,9 @@ Context packs are TOML artifacts that carry reusable Aegis guidance into prompt
 assembly. They define user guidance, project policy, or reviewed learned
 behavior without letting a running session silently rewrite its own prompt.
 
-V1 defines the schema contract and the initial explicit-path loader. Promotion
-commands, rollback commands, and automatic storage discovery are implemented by
-later tasks.
+V1 defines the schema contract, explicit-path loader, and lifecycle commands for
+promotion, retirement, rollback, inspection, and lineage. Automatic storage
+discovery is reserved for a later task.
 
 ## Layer Model
 
@@ -39,6 +39,34 @@ retired, or schema-incompatible packs remain visible in `aegis doctor`, but they
 do not contribute prompt text. Promoted user and project packs append their
 `guidance.text` to the corresponding user or project layer. Promoted learned
 packs append `guidance.text` to the promoted learned layer.
+
+## Lifecycle Commands
+
+Lifecycle commands operate only on packs configured in `context_pack_paths`.
+Selectors can be a pack ID or the configured absolute path. Commands edit the
+pack TOML in place, so the audit trail travels with the artifact.
+
+```bash
+aegis context-pack list
+aegis context-pack list --json --kind learned --status candidate
+aegis context-pack inspect learned:example --show-guidance
+aegis context-pack promote learned:candidate --evidence issue:13 --reason "reviewed"
+aegis context-pack retire learned:old --reason "superseded"
+aegis context-pack rollback --reason "undo promotion"
+aegis context-pack lineage
+```
+
+Promotion is limited to learned candidate packs and requires at least one
+`--evidence` reference. If another learned pack is currently promoted, promotion
+retires it and writes that pack ID to `[rollback].previous_pack_id` on the new
+active pack. If there was no prior active learned pack, `previous_pack_id = ""`
+records that rollback has no earlier state to restore.
+
+Rollback restores the promoted learned pack named by
+`[rollback].previous_pack_id`, retires the current active learned pack, and
+records rollback evidence as `rollback:<pack-id>`. A running session keeps the
+context pack set it loaded at startup; lifecycle commands affect future config
+loads and explicit resume boundaries, not already assembled prompt layers.
 
 ## TOML Schema
 
@@ -89,6 +117,7 @@ created_at = "2026-05-07T00:00:00Z"
 status = "promoted"
 promoted_at = "2026-05-07T00:00:00Z"
 promoted_by = "project-maintainer"
+source_evidence = ["issue:13"]
 
 [rollback]
 previous_pack_id = ""
@@ -134,10 +163,14 @@ records who or what produced the pack, when, and from which source.
 
 `promotion.status` is required and must be one of `candidate`, `promoted`, or
 `retired`. Promotion state lives inside the artifact so it is not lost when packs
-are copied, reviewed, or rolled back.
+are copied, reviewed, or rolled back. `promoted_at`, `promoted_by`, and
+`source_evidence` record the promotion audit trail. `retired_at`, `retired_by`,
+and `retire_reason` record retirement.
 
 `rollback` records enough metadata to explain how to return from a promoted pack
-to a prior state. It is required for promoted learned packs.
+to a prior state. It is required for promoted learned packs. For the first
+promoted learned pack, `previous_pack_id = ""` means there is no prior active
+learned pack to restore.
 
 ## Examples
 
