@@ -8,6 +8,7 @@ pub use agent_path::AgentPath;
 pub use session_id::SessionId;
 pub use thread_id::ThreadId;
 pub use tool_name::ToolName;
+pub mod aegis_secret_policy;
 pub mod approvals;
 pub mod config_types;
 pub mod dynamic_tools;

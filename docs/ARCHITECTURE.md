@@ -85,6 +85,9 @@ Aegis Code should mediate configured sensitive commands through Aegis Secret
 when available. The request should include argv, cwd, repo, task scope, current
 method state, and the reason the command is sensitive.
 
+The v1 broker request and response contract is defined in
+[Aegis Secret Policy Contract](aegis-secret-policy.md).
+
 ## Provider Strategy
 
 The first provider contract should preserve upstream OpenAI-compatible behavior.
