@@ -1,7 +1,15 @@
 use super::*;
 use crate::goals::GoalRuntimeState;
+use crate::state::MethodStatePersistenceDiagnostic;
+use crate::state::MethodStatePersistenceStatus;
+use codex_git_utils::collect_git_info;
 use codex_protocol::SessionId;
 use codex_protocol::config_types::ServiceTier;
+use codex_protocol::method_state::METHOD_STATE_SCHEMA_VERSION;
+use codex_protocol::method_state::MethodIssueRef;
+use codex_protocol::method_state::MethodResumeContext;
+use codex_protocol::method_state::MethodResumeValidityStatus;
+use codex_protocol::method_state::MethodState;
 use codex_protocol::permissions::FileSystemPath;
 use codex_protocol::permissions::FileSystemSpecialPath;
 use codex_protocol::protocol::ThreadSource;
@@ -306,6 +314,265 @@ impl SessionConfiguration {
     }
 }
 
+#[cfg(test)]
+mod method_state_tests {
+    use super::*;
+    use chrono::Utc;
+    use codex_protocol::method_state::MethodAssumption;
+    use codex_protocol::method_state::MethodClaim;
+    use codex_protocol::method_state::MethodEvidence;
+    use codex_protocol::method_state::MethodEvidenceKind;
+    use codex_protocol::method_state::MethodEvidenceRequirement;
+    use codex_protocol::method_state::MethodFalsifier;
+    use codex_protocol::method_state::MethodFalsifierStatus;
+    use codex_protocol::method_state::MethodGate;
+    use codex_protocol::method_state::MethodGateStatus;
+    use codex_protocol::method_state::MethodIntent;
+    use codex_protocol::method_state::MethodIssueProvider;
+    use codex_protocol::method_state::MethodLinkedIssue;
+    use codex_protocol::method_state::MethodProvenance;
+    use codex_protocol::method_state::MethodProvenanceSource;
+    use codex_protocol::method_state::MethodReviewFinding;
+    use codex_protocol::method_state::MethodReviewFindingStatus;
+    use codex_protocol::method_state::MethodReviewSeverity;
+    use codex_protocol::method_state::MethodWorkStatus;
+    use codex_protocol::protocol::ResumedHistory;
+    use pretty_assertions::assert_eq;
+    use std::process::Command;
+
+    fn issue() -> MethodLinkedIssue {
+        MethodLinkedIssue {
+            provider: MethodIssueProvider::GitHub,
+            repository: "mithran-hq/aegis-code".to_string(),
+            number: 9,
+            title: Some("Task: Implement method-state persistence".to_string()),
+            url: Some("https://github.com/mithran-hq/aegis-code/issues/9".to_string()),
+        }
+    }
+
+    fn sample_state(mut resume_context: MethodResumeContext) -> MethodState {
+        let issue = issue();
+        resume_context.linked_issue = Some(MethodIssueRef::from(&issue));
+        MethodState {
+            schema_version: METHOD_STATE_SCHEMA_VERSION,
+            intent: MethodIntent {
+                summary: "Persist method state across resume".to_string(),
+                success_criteria: vec!["resume diagnostics are actionable".to_string()],
+            },
+            linked_issue: Some(issue),
+            status: MethodWorkStatus::Incomplete,
+            claims: vec![MethodClaim {
+                id: "claim:loaded".to_string(),
+                summary: "Method state loads from SQLite".to_string(),
+                evidence_ids: vec!["evidence:loader".to_string()],
+            }],
+            assumptions: vec![MethodAssumption {
+                id: "assumption:thread-state".to_string(),
+                summary: "Thread state belongs to this resumed thread".to_string(),
+                falsifier_ids: vec!["falsifier:wrong-thread".to_string()],
+            }],
+            falsifiers: vec![MethodFalsifier {
+                id: "falsifier:wrong-thread".to_string(),
+                summary: "A different thread's method state is loaded".to_string(),
+                status: MethodFalsifierStatus::Open,
+                evidence_ids: Vec::new(),
+            }],
+            evidence_requirements: vec![MethodEvidenceRequirement {
+                id: "requirement:loader".to_string(),
+                summary: "Loader returns persisted state".to_string(),
+                required: true,
+            }],
+            evidence: vec![MethodEvidence {
+                id: "evidence:loader".to_string(),
+                summary: "Session loader returned persisted method state".to_string(),
+                kind: MethodEvidenceKind::Test,
+                requirement_ids: vec!["requirement:loader".to_string()],
+                claim_ids: vec!["claim:loaded".to_string()],
+                source: Some("session method_state_tests".to_string()),
+                captured_at_unix_seconds: 1_779_999_000,
+            }],
+            gates: vec![MethodGate {
+                id: "gate:resume".to_string(),
+                name: "Resume".to_string(),
+                status: MethodGateStatus::Pending,
+                evidence_requirement_ids: vec!["requirement:loader".to_string()],
+                rationale: None,
+            }],
+            review_findings: vec![MethodReviewFinding {
+                id: "finding:none".to_string(),
+                summary: "No blocking findings".to_string(),
+                severity: MethodReviewSeverity::Info,
+                status: MethodReviewFindingStatus::Addressed,
+                claim_ids: vec!["claim:loaded".to_string()],
+                evidence_ids: vec!["evidence:loader".to_string()],
+                reviewed_at_unix_seconds: 1_779_999_100,
+                reviewer: Some("codex".to_string()),
+            }],
+            closure: None,
+            resume_context,
+            provenance: MethodProvenance {
+                created_at_unix_seconds: 1_779_998_000,
+                updated_at_unix_seconds: 1_779_999_100,
+                source: MethodProvenanceSource::Agent,
+                actor: Some("codex".to_string()),
+            },
+        }
+    }
+
+    fn resumed_history(thread_id: ThreadId) -> InitialHistory {
+        InitialHistory::Resumed(ResumedHistory {
+            conversation_id: thread_id,
+            history: Vec::new(),
+            rollout_path: None,
+        })
+    }
+
+    async fn seeded_runtime(
+        cwd: &Path,
+    ) -> (tempfile::TempDir, Arc<codex_state::StateRuntime>, ThreadId) {
+        let codex_home = tempfile::tempdir().expect("temp codex home");
+        let runtime = codex_state::StateRuntime::init(
+            codex_home.path().to_path_buf(),
+            "test-provider".to_string(),
+        )
+        .await
+        .expect("init runtime");
+        let thread_id = ThreadId::new();
+        let mut builder = codex_state::ThreadMetadataBuilder::new(
+            thread_id,
+            codex_home.path().join(format!("rollout-{thread_id}.jsonl")),
+            Utc::now(),
+            SessionSource::Cli,
+        );
+        builder.cwd = cwd.to_path_buf();
+        runtime
+            .upsert_thread(&builder.build("test-provider"))
+            .await
+            .expect("seed thread");
+        (codex_home, runtime, thread_id)
+    }
+
+    #[tokio::test]
+    async fn fresh_session_method_state_status_is_missing_without_warning() {
+        let temp_dir = tempfile::tempdir().expect("temp cwd");
+        let cwd = AbsolutePathBuf::try_from(temp_dir.path().to_path_buf()).expect("absolute cwd");
+        let status =
+            load_method_state_persistence_status(None, ThreadId::new(), &InitialHistory::New, &cwd)
+                .await;
+
+        assert_eq!(status, MethodStatePersistenceStatus::Missing);
+        assert_eq!(method_state_startup_warning(&status), None);
+    }
+
+    #[tokio::test]
+    async fn resumed_session_without_persisted_method_state_is_invalid() {
+        let temp_dir = tempfile::tempdir().expect("temp cwd");
+        let cwd = AbsolutePathBuf::try_from(temp_dir.path().to_path_buf()).expect("absolute cwd");
+        let (_codex_home, runtime, thread_id) = seeded_runtime(cwd.as_path()).await;
+        let status = load_method_state_persistence_status(
+            Some(runtime.as_ref()),
+            thread_id,
+            &resumed_history(thread_id),
+            &cwd,
+        )
+        .await;
+
+        let MethodStatePersistenceStatus::Invalid { diagnostic } = status else {
+            panic!("expected invalid status");
+        };
+        assert!(diagnostic.message.contains("method state is missing"));
+    }
+
+    #[tokio::test]
+    async fn resumed_session_loads_valid_persisted_method_state() {
+        let repo_dir = tempfile::tempdir().expect("temp repo");
+        init_git_repo(repo_dir.path());
+        let cwd = AbsolutePathBuf::try_from(repo_dir.path().to_path_buf()).expect("absolute cwd");
+        let (_codex_home, runtime, thread_id) = seeded_runtime(cwd.as_path()).await;
+        let resume_context = current_method_resume_context(&cwd, None).await;
+        let state = sample_state(resume_context);
+        runtime
+            .upsert_thread_method_state(thread_id, &state)
+            .await
+            .expect("persist method state");
+
+        let status = load_method_state_persistence_status(
+            Some(runtime.as_ref()),
+            thread_id,
+            &resumed_history(thread_id),
+            &cwd,
+        )
+        .await;
+
+        let MethodStatePersistenceStatus::Loaded {
+            state: loaded,
+            resume_validity,
+        } = status
+        else {
+            panic!("expected loaded status");
+        };
+        assert_eq!(loaded, state);
+        assert_eq!(resume_validity.status, MethodResumeValidityStatus::Valid);
+        assert_eq!(resume_validity.reasons, Vec::new());
+    }
+
+    #[tokio::test]
+    async fn resumed_session_reports_stale_method_state() {
+        let repo_dir = tempfile::tempdir().expect("temp repo");
+        init_git_repo(repo_dir.path());
+        let cwd = AbsolutePathBuf::try_from(repo_dir.path().to_path_buf()).expect("absolute cwd");
+        let (_codex_home, runtime, thread_id) = seeded_runtime(cwd.as_path()).await;
+        let mut resume_context = current_method_resume_context(&cwd, None).await;
+        resume_context.branch = Some("older-branch".to_string());
+        let state = sample_state(resume_context);
+        runtime
+            .upsert_thread_method_state(thread_id, &state)
+            .await
+            .expect("persist stale method state");
+
+        let status = load_method_state_persistence_status(
+            Some(runtime.as_ref()),
+            thread_id,
+            &resumed_history(thread_id),
+            &cwd,
+        )
+        .await;
+
+        let MethodStatePersistenceStatus::Loaded {
+            resume_validity, ..
+        } = &status
+        else {
+            panic!("expected loaded status");
+        };
+        assert_eq!(resume_validity.status, MethodResumeValidityStatus::Stale);
+        assert!(method_state_startup_warning(&status).is_some());
+    }
+
+    fn init_git_repo(path: &Path) {
+        git(path, &["init"]);
+        git(path, &["config", "user.email", "codex@example.com"]);
+        git(path, &["config", "user.name", "Codex"]);
+        std::fs::write(path.join("README.md"), "test\n").expect("write readme");
+        git(path, &["add", "README.md"]);
+        git(path, &["commit", "-m", "initial"]);
+    }
+
+    fn git(path: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(path)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 #[derive(Default, Clone)]
 pub(crate) struct SessionSettingsUpdate {
     pub(crate) cwd: Option<PathBuf>,
@@ -333,6 +600,93 @@ pub(crate) struct AppServerClientMetadata {
     pub(crate) client_version: Option<String>,
 }
 
+async fn current_method_resume_context(
+    cwd: &AbsolutePathBuf,
+    persisted_state: Option<&MethodState>,
+) -> MethodResumeContext {
+    let git_info = collect_git_info(cwd.as_path()).await;
+    let repository = git_info
+        .as_ref()
+        .and_then(|info| info.repository_url.clone())
+        .or_else(|| get_git_repo_root(cwd.as_path()).map(|root| root.display().to_string()))
+        .or_else(|| Some(cwd.as_path().to_string_lossy().into_owned()));
+    let branch = git_info.as_ref().and_then(|info| info.branch.clone());
+    let commit = git_info
+        .as_ref()
+        .and_then(|info| info.commit_hash.as_ref().map(|sha| sha.0.clone()));
+    let linked_issue = persisted_state
+        .and_then(|state| state.linked_issue.as_ref().map(MethodIssueRef::from))
+        .or_else(|| persisted_state.and_then(|state| state.resume_context.linked_issue.clone()));
+
+    MethodResumeContext {
+        repository,
+        branch,
+        commit,
+        linked_issue,
+        schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+    }
+}
+
+async fn load_method_state_persistence_status(
+    state_db: Option<&codex_state::StateRuntime>,
+    thread_id: ThreadId,
+    initial_history: &InitialHistory,
+    cwd: &AbsolutePathBuf,
+) -> MethodStatePersistenceStatus {
+    if !matches!(initial_history, InitialHistory::Resumed(_)) {
+        return MethodStatePersistenceStatus::Missing;
+    }
+
+    let Some(state_db) = state_db else {
+        return MethodStatePersistenceStatus::Invalid {
+            diagnostic: MethodStatePersistenceDiagnostic {
+                message: format!(
+                    "Aegis method state storage is unavailable for resumed thread {thread_id}; prior falsifiers and evidence cannot be validated."
+                ),
+            },
+        };
+    };
+
+    match state_db.get_thread_method_state(thread_id).await {
+        Ok(Some(record)) => {
+            let resume_context = current_method_resume_context(cwd, Some(&record.state)).await;
+            let resume_validity = record.state.compute_resume_validity(&resume_context);
+            MethodStatePersistenceStatus::Loaded {
+                state: record.state,
+                resume_validity,
+            }
+        }
+        Ok(None) => MethodStatePersistenceStatus::Invalid {
+            diagnostic: MethodStatePersistenceDiagnostic {
+                message: format!(
+                    "Aegis method state is missing for resumed thread {thread_id}; prior falsifiers and evidence are unavailable."
+                ),
+            },
+        },
+        Err(err) => MethodStatePersistenceStatus::Invalid {
+            diagnostic: MethodStatePersistenceDiagnostic {
+                message: format!(
+                    "Aegis method state for resumed thread {thread_id} is unusable: {err:#}"
+                ),
+            },
+        },
+    }
+}
+
+fn method_state_startup_warning(status: &MethodStatePersistenceStatus) -> Option<String> {
+    match status {
+        MethodStatePersistenceStatus::Missing => None,
+        MethodStatePersistenceStatus::Loaded {
+            resume_validity, ..
+        } if resume_validity.status != MethodResumeValidityStatus::Valid => Some(format!(
+            "Aegis method state resumed with {:?} validity: {:?}. Review prior claims, falsifiers, and evidence before closing work.",
+            resume_validity.status, resume_validity.reasons
+        )),
+        MethodStatePersistenceStatus::Loaded { .. } => None,
+        MethodStatePersistenceStatus::Invalid { diagnostic } => Some(diagnostic.message.clone()),
+    }
+}
+
 impl Session {
     /// Returns the concrete identity for this thread.
     pub(crate) fn thread_id(&self) -> ThreadId {
@@ -342,6 +696,48 @@ impl Session {
     /// Returns the identity shared by the root thread and all descendant threads.
     pub(crate) fn session_id(&self) -> SessionId {
         self.services.agent_control.session_id()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn method_state_status(&self) -> MethodStatePersistenceStatus {
+        self.state.lock().await.method_state_status()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn replace_method_state(
+        &self,
+        method_state: MethodState,
+    ) -> anyhow::Result<MethodStatePersistenceStatus> {
+        anyhow::ensure!(
+            method_state.is_closure_valid(),
+            "cannot persist invalid closed method state for thread {} without required closure evidence",
+            self.conversation_id
+        );
+        let Some(state_db) = self.services.state_db.clone() else {
+            anyhow::bail!(
+                "method state persistence unavailable for thread {}",
+                self.conversation_id
+            );
+        };
+
+        let record = state_db
+            .upsert_thread_method_state(self.conversation_id, &method_state)
+            .await?;
+        let cwd = {
+            let state = self.state.lock().await;
+            state.session_configuration.cwd.clone()
+        };
+        let resume_context = current_method_resume_context(&cwd, Some(&record.state)).await;
+        let resume_validity = record.state.compute_resume_validity(&resume_context);
+        let status = MethodStatePersistenceStatus::Loaded {
+            state: record.state,
+            resume_validity,
+        };
+        self.state
+            .lock()
+            .await
+            .set_method_state_status(status.clone());
+        Ok(status)
     }
 
     #[instrument(name = "session_init", level = "info", skip_all)]
@@ -726,7 +1122,27 @@ impl Session {
             session_configuration.thread_name = thread_name.clone();
             validate_config_lock_if_configured(&session_configuration).await?;
             export_config_lock_if_configured(&session_configuration, thread_id).await?;
-            let state = SessionState::new(session_configuration.clone());
+            let method_state_status = load_method_state_persistence_status(
+                state_db_ctx.as_deref(),
+                thread_id,
+                &initial_history,
+                &session_configuration.cwd,
+            )
+            .instrument(info_span!(
+                "session_init.method_state",
+                otel.name = "session_init.method_state",
+            ))
+            .await;
+            if let Some(message) = method_state_startup_warning(&method_state_status) {
+                post_session_configured_events.push(Event {
+                    id: INITIAL_SUBMIT_ID.to_owned(),
+                    msg: EventMsg::Warning(WarningEvent { message }),
+                });
+            }
+            let state = SessionState::new_with_method_state_status(
+                session_configuration.clone(),
+                method_state_status,
+            );
             let managed_network_requirements_configured = config
                 .config_layer_stack
                 .requirements_toml()

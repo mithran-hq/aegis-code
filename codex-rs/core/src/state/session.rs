@@ -1,5 +1,7 @@
 //! Session-wide mutable state.
 
+use codex_protocol::method_state::MethodResumeValidityReport;
+use codex_protocol::method_state::MethodState;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::ResponseItem;
 use codex_sandboxing::policy_transforms::merge_permission_profiles;
@@ -32,13 +34,42 @@ pub(crate) struct SessionState {
     pub(crate) startup_prewarm: Option<SessionStartupPrewarmHandle>,
     pub(crate) active_connector_selection: HashSet<String>,
     pub(crate) pending_session_start_source: Option<codex_hooks::SessionStartSource>,
+    method_state_status: MethodStatePersistenceStatus,
     granted_permissions: Option<AdditionalPermissionProfile>,
     next_turn_is_first: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MethodStatePersistenceStatus {
+    Missing,
+    Loaded {
+        state: MethodState,
+        resume_validity: MethodResumeValidityReport,
+    },
+    Invalid {
+        diagnostic: MethodStatePersistenceDiagnostic,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MethodStatePersistenceDiagnostic {
+    pub(crate) message: String,
+}
+
 impl SessionState {
     /// Create a new session state mirroring previous `State::default()` semantics.
+    #[allow(dead_code)]
     pub(crate) fn new(session_configuration: SessionConfiguration) -> Self {
+        Self::new_with_method_state_status(
+            session_configuration,
+            MethodStatePersistenceStatus::Missing,
+        )
+    }
+
+    pub(crate) fn new_with_method_state_status(
+        session_configuration: SessionConfiguration,
+        method_state_status: MethodStatePersistenceStatus,
+    ) -> Self {
         let history = ContextManager::new();
         Self {
             session_configuration,
@@ -51,6 +82,7 @@ impl SessionState {
             startup_prewarm: None,
             active_connector_selection: HashSet::new(),
             pending_session_start_source: None,
+            method_state_status,
             granted_permissions: None,
             next_turn_is_first: true,
         }
@@ -173,6 +205,15 @@ impl SessionState {
 
     pub(crate) fn dependency_env(&self) -> HashMap<String, String> {
         self.dependency_env.clone()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn method_state_status(&self) -> MethodStatePersistenceStatus {
+        self.method_state_status.clone()
+    }
+
+    pub(crate) fn set_method_state_status(&mut self, status: MethodStatePersistenceStatus) {
+        self.method_state_status = status;
     }
 
     pub(crate) fn set_session_startup_prewarm(

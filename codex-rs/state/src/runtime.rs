@@ -62,6 +62,7 @@ mod device_key_tests;
 mod goals;
 mod logs;
 mod memories;
+mod method_state;
 mod remote_control;
 #[cfg(test)]
 mod test_support;
