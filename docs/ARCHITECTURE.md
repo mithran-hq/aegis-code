@@ -19,6 +19,22 @@ runtime events.
 Aegis Code can integrate with the other Aegis projects, but it should not absorb
 their product responsibilities.
 
+## Architecture Decisions
+
+Accepted v1 architecture decisions are recorded in ADRs:
+
+- [ADR 0001: Aegis Code Product Boundary](adr/0001-aegis-code-product-boundary.md)
+  names Aegis Code, chooses the harness posture, and separates sibling Aegis
+  project responsibilities.
+- [ADR 0002: Context Pack Promotion](adr/0002-context-pack-promotion.md)
+  requires learned prompt changes to become promoted context packs before they
+  affect future sessions.
+- [ADR 0003: Upstream Codex Fork Posture](adr/0003-upstream-codex-fork-posture.md)
+  chooses upstream Codex as the implementation base and preserves attribution.
+- [ADR 0004: Provider Strategy](adr/0004-provider-strategy.md) preserves
+  OpenAI-compatible behavior first, makes native Anthropic a first-class track,
+  and keeps provider routing as a later policy layer.
+
 ## Method State
 
 The method record is:
