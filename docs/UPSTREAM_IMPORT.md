@@ -16,6 +16,7 @@ Code.
 
 The local repository has an `upstream` remote pointing at
 `https://github.com/openai/codex.git`.
+See `docs/UPSTREAM.md` for the operational sync workflow.
 
 ## Import Method
 
