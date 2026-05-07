@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::SkillsManager;
+use crate::aegis_secret::AegisSecretBroker;
 use crate::agent::AgentControl;
 use crate::client::ModelClient;
 use crate::config::StartedNetworkProxy;
@@ -72,4 +73,5 @@ pub(crate) struct SessionServices {
     /// Shared process-level environment registry. Sessions carry an `Arc` handle so they can pass
     /// the same manager through child-thread spawn paths without reconstructing it.
     pub(crate) environment_manager: Arc<EnvironmentManager>,
+    pub(crate) aegis_secret_broker: Arc<dyn AegisSecretBroker>,
 }

@@ -1284,6 +1284,7 @@ impl Session {
                 ),
                 code_mode_service: crate::tools::code_mode::CodeModeService::new(),
                 environment_manager,
+                aegis_secret_broker: Arc::new(crate::aegis_secret::LocalAegisSecretBroker),
             };
             services
                 .model_client

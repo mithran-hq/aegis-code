@@ -4,6 +4,10 @@ Runtime: unified exec
 Handles approval + sandbox orchestration for unified exec requests, delegating to
 the process manager to spawn PTYs once an ExecRequest is prepared.
 */
+use crate::aegis_secret::AegisSecretMediation;
+use crate::aegis_secret::SensitiveCommandAnalysis;
+use crate::aegis_secret::analyze_sensitive_command;
+use crate::aegis_secret::mediate_command;
 use crate::command_canonicalization::canonicalize_command_for_approval;
 use crate::exec::ExecCapturePolicy;
 use crate::exec::ExecExpiration;
@@ -11,6 +15,7 @@ use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::GuardianNetworkAccessTrigger;
 use crate::guardian::review_approval_request;
 use crate::sandboxing::ExecOptions;
+use crate::sandboxing::ExecRequest;
 use crate::sandboxing::ExecServerEnvConfig;
 use crate::sandboxing::SandboxPermissions;
 use crate::shell::ShellType;
@@ -43,6 +48,7 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::SandboxErr;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::protocol::ReviewDecision;
+use codex_sandboxing::SandboxType;
 use codex_sandboxing::SandboxablePreference;
 use codex_shell_command::powershell::prefix_powershell_script_with_utf8;
 use codex_tools::UnifiedExecShellMode;
@@ -276,6 +282,76 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRunt
         } else {
             command
         };
+
+        if environment_is_remote {
+            match analyze_sensitive_command(base_command) {
+                SensitiveCommandAnalysis::NotSensitive => {}
+                SensitiveCommandAnalysis::Reject(message) => {
+                    return Err(ToolError::Rejected(message));
+                }
+                SensitiveCommandAnalysis::Single(command) => {
+                    return Err(ToolError::Rejected(format!(
+                        "Aegis Secret can only mediate local commands; remote execution of \
+                         sensitive command '{}' is blocked.",
+                        command.name
+                    )));
+                }
+            }
+        }
+
+        match mediate_command(
+            ctx.session.services.aegis_secret_broker.as_ref(),
+            base_command,
+        )
+        .await
+        {
+            AegisSecretMediation::NotSensitive => {}
+            AegisSecretMediation::Reject(message) => return Err(ToolError::Rejected(message)),
+            AegisSecretMediation::Mediate {
+                command_name,
+                command,
+            } => {
+                let options =
+                    unified_exec_options(attempt.network_denial_cancellation_token.clone());
+                let mut exec_request = ExecRequest::new(
+                    command,
+                    req.cwd.clone(),
+                    env.clone(),
+                    None,
+                    options.expiration,
+                    options.capture_policy,
+                    SandboxType::None,
+                    attempt.windows_sandbox_level,
+                    attempt.windows_sandbox_private_desktop,
+                    (*attempt.permissions).clone(),
+                    None,
+                );
+                exec_request.exec_server_env_config = req.exec_server_env_config.clone();
+                tracing::info!(
+                    command_name = %command_name,
+                    "executing Aegis Secret mediated unified exec outside the Codex sandbox"
+                );
+                return self
+                    .manager
+                    .open_session_with_exec_env(
+                        req.process_id,
+                        &exec_request,
+                        req.tty,
+                        Box::new(NoopSpawnLifecycle),
+                        req.environment.as_ref(),
+                    )
+                    .await
+                    .map_err(|err| match err {
+                        UnifiedExecError::SandboxDenied { output, .. } => {
+                            ToolError::Codex(CodexErr::Sandbox(SandboxErr::Denied {
+                                output: Box::new(output),
+                                network_policy_decision: None,
+                            }))
+                        }
+                        other => ToolError::Rejected(other.to_string()),
+                    });
+            }
+        }
 
         if let UnifiedExecShellMode::ZshFork(zsh_fork_config) = &self.shell_mode {
             let command =

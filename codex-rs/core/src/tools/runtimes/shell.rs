@@ -8,12 +8,15 @@ builds sandbox transform inputs, and runs them under the current SandboxAttempt.
 pub(crate) mod unix_escalation;
 pub(crate) mod zsh_fork_backend;
 
+use crate::aegis_secret::AegisSecretMediation;
+use crate::aegis_secret::mediate_command;
 use crate::command_canonicalization::canonicalize_command_for_approval;
 use crate::exec::ExecCapturePolicy;
 use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::GuardianNetworkAccessTrigger;
 use crate::guardian::review_approval_request;
 use crate::sandboxing::ExecOptions;
+use crate::sandboxing::ExecRequest;
 use crate::sandboxing::SandboxPermissions;
 use crate::sandboxing::execute_env;
 use crate::shell::ShellType;
@@ -39,6 +42,7 @@ use codex_network_proxy::NetworkProxy;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::protocol::ReviewDecision;
+use codex_sandboxing::SandboxType;
 use codex_sandboxing::SandboxablePreference;
 use codex_shell_command::powershell::prefix_powershell_script_with_utf8;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -261,6 +265,50 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
         } else {
             command
         };
+
+        match mediate_command(
+            ctx.session.services.aegis_secret_broker.as_ref(),
+            &req.command,
+        )
+        .await
+        {
+            AegisSecretMediation::NotSensitive => {}
+            AegisSecretMediation::Reject(message) => return Err(ToolError::Rejected(message)),
+            AegisSecretMediation::Mediate {
+                command_name,
+                command,
+            } => {
+                let mut mediated_env = env.clone();
+                if let Some(network) = managed_network {
+                    network.apply_to_env(&mut mediated_env);
+                }
+                let mut expiration: crate::exec::ExecExpiration = req.timeout_ms.into();
+                if let Some(cancellation) = attempt.network_denial_cancellation_token.clone() {
+                    expiration = expiration.with_cancellation(cancellation);
+                }
+                let exec_request = ExecRequest::new(
+                    command,
+                    req.cwd.clone(),
+                    mediated_env,
+                    None,
+                    expiration,
+                    ExecCapturePolicy::ShellTool,
+                    SandboxType::None,
+                    attempt.windows_sandbox_level,
+                    attempt.windows_sandbox_private_desktop,
+                    (*attempt.permissions).clone(),
+                    None,
+                );
+                tracing::info!(
+                    command_name = %command_name,
+                    "executing Aegis Secret mediated command outside the Codex sandbox"
+                );
+                let out = execute_env(exec_request, Self::stdout_stream(ctx))
+                    .await
+                    .map_err(ToolError::Codex)?;
+                return Ok(out);
+            }
+        }
 
         if self.backend == ShellRuntimeBackend::ShellCommandZshFork {
             match zsh_fork_backend::maybe_run_shell_command(req, attempt, ctx, &command).await? {
