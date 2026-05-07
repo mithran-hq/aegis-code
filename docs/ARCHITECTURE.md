@@ -19,6 +19,9 @@ runtime events.
 Aegis Code can integrate with the other Aegis projects, but it should not absorb
 their product responsibilities.
 
+The Codex-derived crate and module attachment points for v1 implementation are
+mapped in [CODEX_ARCHITECTURE_MAP.md](CODEX_ARCHITECTURE_MAP.md).
+
 ## Architecture Decisions
 
 Accepted v1 architecture decisions are recorded in ADRs:
