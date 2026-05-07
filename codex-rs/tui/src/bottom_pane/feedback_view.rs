@@ -27,9 +27,9 @@ use super::textarea::TextArea;
 use super::textarea::TextAreaState;
 
 const BASE_CLI_BUG_ISSUE_URL: &str =
-    "https://github.com/openai/codex/issues/new?template=3-cli.yml";
+    "https://github.com/mithran-hq/aegis-code/issues/new?template=3-cli.yml";
 /// Internal routing link for employee feedback follow-ups. This must not be shown to external users.
-const CODEX_FEEDBACK_INTERNAL_URL: &str = "http://go/codex-feedback-internal";
+const CODEX_FEEDBACK_INTERNAL_URL: &str = "http://go/aegis-feedback-internal";
 
 /// The target audience for feedback follow-up instructions.
 ///
@@ -334,7 +334,7 @@ pub(crate) fn feedback_success_cell(
                 Line::from("  Share this and add some info about your problem:"),
                 Line::from(vec![
                     "    ".into(),
-                    format!("https://go/codex-feedback/{thread_id}").bold(),
+                    format!("https://go/aegis-feedback/{thread_id}").bold(),
                 ]),
             ]);
         }
@@ -754,7 +754,7 @@ mod tests {
             "thread-1",
             FeedbackAudience::OpenAiEmployee,
         );
-        let expected_slack_url = "http://go/codex-feedback-internal".to_string();
+        let expected_slack_url = "http://go/aegis-feedback-internal".to_string();
         assert_eq!(bug_url.as_deref(), Some(expected_slack_url.as_str()));
 
         let bad_result_url = issue_url_for_category(
@@ -788,7 +788,7 @@ mod tests {
         );
         let bug_url_non_employee =
             issue_url_for_category(FeedbackCategory::Bug, "t", FeedbackAudience::External);
-        let expected_external_url = "https://github.com/openai/codex/issues/new?template=3-cli.yml&steps=Uploaded%20thread:%20t";
+        let expected_external_url = "https://github.com/mithran-hq/aegis-code/issues/new?template=3-cli.yml&steps=Uploaded%20thread:%20t";
         assert_eq!(bug_url_non_employee.as_deref(), Some(expected_external_url));
     }
 
@@ -805,7 +805,7 @@ mod tests {
         );
         assert_eq!(
             rendered,
-            "• Feedback uploaded. Please open an issue using the following URL:\n\n  https://github.com/openai/codex/issues/new?template=3-cli.yml&steps=Uploaded%20thread:%20thread-1\n\n  Or mention your thread ID thread-1 in an existing issue."
+            "• Feedback uploaded. Please open an issue using the following URL:\n\n  https://github.com/mithran-hq/aegis-code/issues/new?template=3-cli.yml&steps=Uploaded%20thread:%20thread-1\n\n  Or mention your thread ID thread-1 in an existing issue."
         );
     }
 
@@ -822,7 +822,7 @@ mod tests {
         );
         assert_eq!(
             rendered,
-            "• Feedback uploaded. Please report this in #codex-feedback:\n\n  http://go/codex-feedback-internal\n\n  Share this and add some info about your problem:\n    https://go/codex-feedback/thread-2"
+            "• Feedback uploaded. Please report this in #codex-feedback:\n\n  http://go/aegis-feedback-internal\n\n  Share this and add some info about your problem:\n    https://go/aegis-feedback/thread-2"
         );
     }
 

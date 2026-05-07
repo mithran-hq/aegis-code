@@ -363,7 +363,7 @@ async fn codex_tool_passes_base_instructions() -> anyhow::Result<()> {
         create_mock_responses_server(vec![create_final_assistant_message_sse_response("Enjoy!")?])
             .await;
 
-    // Run `codex mcp` with a specific config.toml.
+    // Run `aegis mcp` with a specific config.toml.
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path(), &server.uri())?;
     let mut mcp_process = McpProcess::new(codex_home.path()).await?;

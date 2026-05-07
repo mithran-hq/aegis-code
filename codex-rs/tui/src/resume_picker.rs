@@ -3347,7 +3347,7 @@ mod tests {
             thread_name: Some(String::from("My session")),
             created_at: None,
             updated_at: None,
-            cwd: Some(PathBuf::from("/tmp/codex-session-picker")),
+            cwd: Some(PathBuf::from("/tmp/aegis-session-picker")),
             git_branch: Some(String::from("fcoury/session-picker")),
         };
 
@@ -3407,7 +3407,7 @@ mod tests {
             thread_name: Some(String::from("feat(tui): add raw scrollback mode")),
             created_at: parse_timestamp_str("2026-05-02T14:31:08Z"),
             updated_at: parse_timestamp_str("2026-05-02T14:48:19Z"),
-            cwd: Some(PathBuf::from("/Users/felipe.coury/code/codex")),
+            cwd: Some(PathBuf::from("/Users/felipe.coury/code/aegis")),
             git_branch: Some(String::from("codex/raw-scrollback-mode")),
         };
 
@@ -3434,7 +3434,7 @@ mod tests {
             "5h ago",
             "3h ago",
             Some("main"),
-            Some("tmp/codex"),
+            Some("tmp/aegis"),
             /*show_cwd*/ true,
             /*width*/ 80,
         );
@@ -3443,7 +3443,7 @@ mod tests {
             "5h ago",
             "3h ago",
             Some("main"),
-            Some("tmp/codex"),
+            Some("tmp/aegis"),
             /*show_cwd*/ true,
             /*width*/ 80,
         );
@@ -3454,8 +3454,8 @@ mod tests {
         assert!(created[0].to_string().starts_with("  5h ago"));
         assert!(!updated[0].to_string().contains("created 5h ago"));
         assert!(!created[0].to_string().contains("updated 3h ago"));
-        assert_metadata_order(&updated[0], "⌁ tmp/codex", " main");
-        assert_metadata_order(&created[0], "⌁ tmp/codex", " main");
+        assert_metadata_order(&updated[0], "⌁ tmp/aegis", " main");
+        assert_metadata_order(&created[0], "⌁ tmp/aegis", " main");
     }
 
     #[test]
@@ -3465,16 +3465,16 @@ mod tests {
             "5h ago",
             "3h ago",
             /*branch*/ None,
-            Some("/tmp/codex"),
+            Some("/tmp/aegis"),
             /*show_cwd*/ true,
             /*width*/ 80,
         );
 
         assert_eq!(footer.len(), 1);
         let rendered = footer[0].to_string();
-        assert!(rendered.contains("⌁ /tmp/codex"));
+        assert!(rendered.contains("⌁ /tmp/aegis"));
         assert!(rendered.contains(" no branch"));
-        assert_metadata_order(&footer[0], "⌁ /tmp/codex", " no branch");
+        assert_metadata_order(&footer[0], "⌁ /tmp/aegis", " no branch");
     }
 
     #[test]
@@ -3485,7 +3485,7 @@ mod tests {
             "5h ago",
             "4h ago",
             Some(branch),
-            Some("~/code/codex.etraut-animations-false-improvements/codex-rs"),
+            Some("~/code/aegis.etraut-animations-false-improvements/aegis-rs"),
             /*show_cwd*/ true,
             /*width*/ 140,
         );
@@ -3496,7 +3496,7 @@ mod tests {
 
     #[test]
     fn footer_cwd_truncates_to_responsive_column() {
-        let cwd = "~/code/codex.owner-extremely-long-worktree-name-that-needs-truncating/codex-rs";
+        let cwd = "~/code/aegis.owner-extremely-long-worktree-name-that-needs-truncating/aegis-rs";
         let branch = "owner/branch";
         let footer = render_footer_lines(
             ThreadSortKey::UpdatedAt,
@@ -3511,7 +3511,7 @@ mod tests {
         assert_eq!(footer.len(), 1);
         let footer = footer[0].to_string();
         assert!(!footer.contains(cwd));
-        assert!(footer.contains("⌁ ~/code/codex."));
+        assert!(footer.contains("⌁ ~/code/aegis."));
         assert!(footer.contains("..."));
         assert!(footer.contains(" owner/branch"));
     }
@@ -3523,7 +3523,7 @@ mod tests {
             "5h ago",
             "4h ago",
             Some("owner/branch"),
-            Some("~/code/codex.owner-worktree/codex-rs"),
+            Some("~/code/aegis.owner-worktree/aegis-rs"),
             /*show_cwd*/ false,
             /*width*/ 80,
         );
@@ -4720,7 +4720,7 @@ session_picker_view = "dense"
             created_at: parse_timestamp_str("2026-04-28T16:30:00Z"),
             updated_at: parse_timestamp_str("2026-04-28T17:45:00Z"),
             cwd: Some(PathBuf::from(
-                "/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs",
+                "/Users/felipe.coury/code/aegis.fcoury-session-picker/aegis-rs",
             )),
             git_branch: Some(String::from("fcoury/session-picker")),
         }
@@ -4771,7 +4771,7 @@ session_picker_view = "dense"
             render_dense_row_snapshot(
                 /*show_all*/ false,
                 Some(PathBuf::from(
-                    "/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs"
+                    "/Users/felipe.coury/code/aegis.fcoury-session-picker/aegis-rs"
                 )),
                 /*width*/ 100,
             )
@@ -4930,7 +4930,7 @@ session_picker_view = "dense"
             ProviderFilter::MatchDefault(String::from("openai")),
             /*show_all*/ false,
             Some(PathBuf::from(
-                "/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs",
+                "/Users/felipe.coury/code/aegis.fcoury-session-picker/aegis-rs",
             )),
             SessionPickerAction::Resume,
         );
@@ -4973,7 +4973,7 @@ session_picker_view = "dense"
             thread_name: None,
             created_at: parse_timestamp_str("2026-04-28T16:30:00Z"),
             updated_at: parse_timestamp_str("2026-04-28T17:45:00Z"),
-            cwd: Some(PathBuf::from("/tmp/codex")),
+            cwd: Some(PathBuf::from("/tmp/aegis")),
             git_branch: Some(String::from("fcoury/session-picker")),
         };
         let mut state = PickerState::new(
@@ -5042,7 +5042,7 @@ session_picker_view = "dense"
             thread_name: None,
             created_at: parse_timestamp_str("2026-04-28T16:30:00Z"),
             updated_at: parse_timestamp_str("2026-04-28T17:45:00Z"),
-            cwd: Some(PathBuf::from("/tmp/codex")),
+            cwd: Some(PathBuf::from("/tmp/aegis")),
             git_branch: Some(String::from("fcoury/session-picker")),
         };
         let mut state = PickerState::new(

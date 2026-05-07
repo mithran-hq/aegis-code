@@ -6,15 +6,15 @@ use codex_install_context::StandalonePlatform;
 /// Update action the CLI should perform after the TUI exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
-    /// Update via `npm install -g @openai/codex@latest`.
+    /// Update via `npm install -g @mithran/aegis@latest`.
     NpmGlobalLatest,
-    /// Update via `bun install -g @openai/codex@latest`.
+    /// Update via `bun install -g @mithran/aegis@latest`.
     BunGlobalLatest,
-    /// Update via `brew upgrade codex`.
+    /// Update via `brew upgrade aegis`.
     BrewUpgrade,
-    /// Update via `curl -fsSL https://chatgpt.com/codex/install.sh | sh`.
+    /// Update via `curl -fsSL https://raw.githubusercontent.com/mithran-hq/aegis-code/master/scripts/install/install.sh | sh`.
     StandaloneUnix,
-    /// Update via `irm https://chatgpt.com/codex/install.ps1|iex`.
+    /// Update via `irm https://raw.githubusercontent.com/mithran-hq/aegis-code/master/scripts/install/install.ps1|iex`.
     StandaloneWindows,
 }
 
@@ -36,16 +36,22 @@ impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
+            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@mithran/aegis@latest"]),
+            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@mithran/aegis@latest"]),
+            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "aegis"]),
             UpdateAction::StandaloneUnix => (
                 "sh",
-                &["-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
+                &[
+                    "-c",
+                    "curl -fsSL https://raw.githubusercontent.com/mithran-hq/aegis-code/master/scripts/install/install.sh | sh",
+                ],
             ),
             UpdateAction::StandaloneWindows => (
                 "powershell",
-                &["-c", "irm https://chatgpt.com/codex/install.ps1|iex"],
+                &[
+                    "-c",
+                    "irm https://raw.githubusercontent.com/mithran-hq/aegis-code/master/scripts/install/install.ps1|iex",
+                ],
             ),
         }
     }
@@ -93,7 +99,7 @@ mod tests {
             UpdateAction::from_install_context(&InstallContext::Standalone {
                 platform: StandalonePlatform::Unix,
                 release_dir: native_release_dir.clone(),
-                resources_dir: Some(native_release_dir.join("codex-resources")),
+                resources_dir: Some(native_release_dir.join("aegis-resources")),
             }),
             Some(UpdateAction::StandaloneUnix)
         );
@@ -101,7 +107,7 @@ mod tests {
             UpdateAction::from_install_context(&InstallContext::Standalone {
                 platform: StandalonePlatform::Windows,
                 release_dir: native_release_dir.clone(),
-                resources_dir: Some(native_release_dir.join("codex-resources")),
+                resources_dir: Some(native_release_dir.join("aegis-resources")),
             }),
             Some(UpdateAction::StandaloneWindows)
         );
@@ -113,14 +119,20 @@ mod tests {
             UpdateAction::StandaloneUnix.command_args(),
             (
                 "sh",
-                &["-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"][..],
+                &[
+                    "-c",
+                    "curl -fsSL https://raw.githubusercontent.com/mithran-hq/aegis-code/master/scripts/install/install.sh | sh",
+                ][..],
             )
         );
         assert_eq!(
             UpdateAction::StandaloneWindows.command_args(),
             (
                 "powershell",
-                &["-c", "irm https://chatgpt.com/codex/install.ps1|iex"][..],
+                &[
+                    "-c",
+                    "irm https://raw.githubusercontent.com/mithran-hq/aegis-code/master/scripts/install/install.ps1|iex",
+                ][..],
             )
         );
     }

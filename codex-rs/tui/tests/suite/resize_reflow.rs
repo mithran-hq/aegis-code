@@ -55,7 +55,7 @@ fn tmux_split_preserves_fresh_session_composer_row_after_resize_reflow() -> Resu
             .arg(&session_name)
             .arg("--")
             .arg("env")
-            .arg(format!("CODEX_HOME={}", codex_home.path().display()))
+            .arg(format!("AEGIS_HOME={}", codex_home.path().display()))
             .arg("OPENAI_API_KEY=dummy")
             .arg(format!("CODEX_RS_SSE_FIXTURE={}", fixture.display()))
             .arg(codex)
@@ -224,7 +224,7 @@ fn tmux_width_resize_restore_keeps_visible_content_anchored() -> Result<()> {
             .arg(&session_name)
             .arg("--")
             .arg("env")
-            .arg(format!("CODEX_HOME={}", codex_home.path().display()))
+            .arg(format!("AEGIS_HOME={}", codex_home.path().display()))
             .arg("OPENAI_API_KEY=dummy")
             .arg(format!("CODEX_RS_SSE_FIXTURE={}", fixture.display()))
             .arg(codex)
@@ -352,7 +352,7 @@ fn run_repeated_resize_smoke(terminal_resize_reflow_enabled: bool) -> Result<()>
             .arg(&session_name)
             .arg("--")
             .arg("env")
-            .arg(format!("CODEX_HOME={}", codex_home.path().display()))
+            .arg(format!("AEGIS_HOME={}", codex_home.path().display()))
             .arg("OPENAI_API_KEY=dummy")
             .arg(format!("CODEX_RS_SSE_FIXTURE={}", fixture.display()))
             .arg(codex)
@@ -468,11 +468,11 @@ impl Drop for TmuxSession {
 }
 
 fn codex_binary(repo_root: &Path) -> Result<PathBuf> {
-    if let Ok(path) = codex_utils_cargo_bin::cargo_bin("codex") {
+    if let Ok(path) = codex_utils_cargo_bin::cargo_bin("aegis") {
         return Ok(path);
     }
 
-    let fallback = repo_root.join("codex-rs/target/debug/codex");
+    let fallback = repo_root.join("codex-rs/target/debug/aegis");
     anyhow::ensure!(
         fallback.is_file(),
         "codex binary is unavailable; run `cargo build -p codex-cli` first"

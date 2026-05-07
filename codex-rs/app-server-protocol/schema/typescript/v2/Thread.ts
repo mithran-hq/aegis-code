@@ -54,7 +54,7 @@ cwd: AbsolutePathBuf,
  */
 cliVersion: string,
 /**
- * Origin of the thread (CLI, VSCode, codex exec, codex app-server, etc.).
+ * Origin of the thread (CLI, VSCode, aegis exec, aegis app-server, etc.).
  */
 source: SessionSource,
 /**

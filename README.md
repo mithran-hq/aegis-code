@@ -14,7 +14,7 @@ provider routing, and structured events.
 The planned v1 binary is:
 
 ```bash
-aegis-code
+aegis
 ```
 
 The first release should keep the familiar Codex-style coding loop while adding

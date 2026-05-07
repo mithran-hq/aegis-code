@@ -12,7 +12,7 @@ outside the current working directory whenever it is available. If `bwrap` is
 present but too old to support
 `--argv0`, the helper keeps using system bubblewrap and switches to a
 no-`--argv0` compatibility path for the inner re-exec. If `bwrap` is missing,
-the helper falls back to the bundled `codex-resources/bwrap` binary shipped
+the helper falls back to the bundled `aegis-resources/bwrap` binary shipped
 with Codex.
 Codex also surfaces a startup warning when `bwrap` is missing so users know it
 is falling back to the bundled helper. Codex surfaces the same startup warning
@@ -29,7 +29,7 @@ commands that would enter the bubblewrap path.
 - If `bwrap` is present but too old to support `--argv0`, the helper uses a
   no-`--argv0` compatibility path for the inner re-exec.
 - If `bwrap` is missing, the helper falls back to the bundled
-  `codex-resources/bwrap` path.
+  `aegis-resources/bwrap` path.
 - If `bwrap` is missing, Codex also surfaces a startup warning instead of
   printing directly from the sandbox helper.
 - If bubblewrap cannot create user namespaces, Codex surfaces a startup warning

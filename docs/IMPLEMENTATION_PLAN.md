@@ -8,7 +8,7 @@ Aegis Code starts as a Codex-derived harness and adds Aegis control in layers:
 
 1. repo bootstrap and governance
 2. upstream source import and sync strategy
-3. product rename to `aegis-code`
+3. product rename to `aegis`
 4. method state and evidence receipts
 5. sensitive tool mediation through Aegis Secret
 6. Aegis Engine event emission and context-pack learning
@@ -26,7 +26,7 @@ The current intended child tasks are:
 1. Bootstrap repository, license, governance, and local workflow.
 2. Record v1 architecture and product-boundary ADRs.
 3. Import upstream Codex source and preserve attribution.
-4. Rename binary and package surfaces to `aegis-code`.
+4. Rename binary and package surfaces to `aegis`.
 5. Establish upstream sync strategy.
 6. Map Codex architecture and extension points.
 7. Define Aegis Code method state model.
@@ -71,6 +71,6 @@ The current intended child tasks are:
 
 ## Closure
 
-The plan is complete when `aegis-code` can run the inherited coding loop,
+The plan is complete when `aegis` can run the inherited coding loop,
 enforce method gates, record evidence, mediate sensitive commands, emit Aegis
 events, load promoted context packs, and ship installable release artifacts.

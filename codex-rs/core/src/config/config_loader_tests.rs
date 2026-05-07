@@ -144,7 +144,7 @@ async fn ignore_user_config_keeps_empty_user_layer() -> std::io::Result<()> {
 
     let user_layer = layers
         .get_user_layer()
-        .expect("expected a user layer even when CODEX_HOME/config.toml is ignored");
+        .expect("expected a user layer even when AEGIS_HOME/config.toml is ignored");
     assert_eq!(
         user_layer.config,
         TomlValue::Table(toml::map::Map::new()),
@@ -320,7 +320,7 @@ async fn returns_empty_when_all_layers_missing() {
     .expect("load layers");
     let user_layer = layers
         .get_user_layer()
-        .expect("expected a user layer even when CODEX_HOME/config.toml does not exist");
+        .expect("expected a user layer even when AEGIS_HOME/config.toml does not exist");
     assert_eq!(
         &ConfigLayerEntry {
             name: ConfigLayerSource::User {

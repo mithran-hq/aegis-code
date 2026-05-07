@@ -14,7 +14,7 @@ them.
 
 ## Decision
 
-Name the project Aegis Code and expose the binary as `aegis-code`.
+Name the project Aegis Code and expose the binary as `aegis`.
 
 Aegis Code owns the coding harness: method state, prompt/context assembly,
 evidence receipts, tool-call preflights, sandbox posture, provider routing,
@@ -40,5 +40,5 @@ pack learning. Aegis Agent Runtime remains the optional execution substrate.
   state, receipts, policy, and CI.
 - Learned prompt changes are compiled into context packs and promoted before
   future sessions load them.
-- The old `bruno-gate` repository is superseded after `aegis-code` has its issue
+- The old `bruno-gate` repository is superseded after `aegis` has its issue
   train and bootstrap commit.

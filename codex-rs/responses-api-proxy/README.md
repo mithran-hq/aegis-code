@@ -6,12 +6,12 @@
 # Launch the proxy, dump request/response pairs to /tmp/proxy
 cd path/to/codex/codex-rs
 cargo build
-echo $OPENAI_API_KEY | ./target/debug/codex-responses-api-proxy \
+echo $OPENAI_API_KEY | ./target/debug/aegis-responses-api-proxy \
     --port 60001 \
     --dump-dir /tmp/proxy
 
 
-# Add this to ~/.codex/config.toml:
+# Add this to ~/.aegis/config.toml:
 
 [model_providers.codex-responses-api-proxy]
 name = 'codex-responses-api-proxy'
@@ -45,7 +45,7 @@ A non-privileged user would then run Codex as follows, specifying the `model_pro
 ```shell
 PROXY_PORT=$(jq .port /tmp/server-info.json)
 PROXY_BASE_URL="http://127.0.0.1:${PROXY_PORT}"
-codex exec -c "model_providers.openai-proxy={ name = 'OpenAI Proxy', base_url = '${PROXY_BASE_URL}/v1', wire_api='responses' }" \
+aegis exec -c "model_providers.openai-proxy={ name = 'OpenAI Proxy', base_url = '${PROXY_BASE_URL}/v1', wire_api='responses' }" \
     -c model_provider="openai-proxy" \
     'Your prompt here'
 ```

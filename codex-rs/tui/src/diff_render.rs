@@ -1472,7 +1472,7 @@ mod tests {
         let cwd = if cfg!(windows) {
             PathBuf::from(r"C:\workspace\codex")
         } else {
-            PathBuf::from("/workspace/codex")
+            PathBuf::from("/workspace/aegis")
         };
         let path = cwd.join("tui").join("example.png");
 

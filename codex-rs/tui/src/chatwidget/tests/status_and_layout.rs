@@ -138,7 +138,7 @@ async fn status_line_git_summary_items_render_values() {
     chat.status_line_git_summary = Some(StatusLineGitSummary {
         pull_request: Some(crate::branch_summary::StatusLinePullRequest {
             number: 20_252,
-            url: "https://github.com/openai/codex/pull/20252".to_string(),
+            url: "https://github.com/mithran-hq/aegis-code/pull/20252".to_string(),
         }),
         branch_change_stats: Some(crate::branch_summary::GitBranchDiffStats {
             additions: 143,
@@ -201,7 +201,7 @@ async fn stale_status_line_git_summary_update_is_ignored() {
         StatusLineGitSummary {
             pull_request: Some(crate::branch_summary::StatusLinePullRequest {
                 number: 20_252,
-                url: "https://github.com/openai/codex/pull/20252".to_string(),
+                url: "https://github.com/mithran-hq/aegis-code/pull/20252".to_string(),
             }),
             branch_change_stats: Some(crate::branch_summary::GitBranchDiffStats {
                 additions: 143,
@@ -798,7 +798,7 @@ async fn workspace_owner_limit_states_render_state_specific_messages() {
         (
             RateLimitReachedType::WorkspaceOwnerUsageLimitReached,
             RateLimitErrorKind::UsageLimit,
-            "Usage limit reached. You've reached your usage limit. Increase your limits to continue using codex.",
+            "Usage limit reached. You've reached your usage limit. Increase your limits to continue using Aegis Code.",
         ),
     ];
 

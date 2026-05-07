@@ -74,11 +74,11 @@ impl AppServerClient {
         let stdin = child
             .stdin
             .take()
-            .context("codex app-server stdin unavailable")?;
+            .context("aegis app-server stdin unavailable")?;
         let stdout = child
             .stdout
             .take()
-            .context("codex app-server stdout unavailable")?;
+            .context("aegis app-server stdout unavailable")?;
 
         Ok(Self {
             child,

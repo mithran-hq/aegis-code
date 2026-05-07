@@ -1776,7 +1776,7 @@ async fn slash_fork_requests_current_fork() {
 #[tokio::test]
 async fn slash_rollout_displays_current_path() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    let rollout_path = PathBuf::from("/tmp/codex-test-rollout.jsonl");
+    let rollout_path = PathBuf::from("/tmp/aegis-test-rollout.jsonl");
     chat.current_rollout_path = Some(rollout_path.clone());
 
     chat.dispatch_command(SlashCommand::Rollout);

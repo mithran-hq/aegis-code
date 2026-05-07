@@ -3084,7 +3084,7 @@
               "$ref": "#/definitions/SessionSource"
             }
           ],
-          "description": "Origin of the thread (CLI, VSCode, codex exec, codex app-server, etc.)."
+          "description": "Origin of the thread (CLI, VSCode, aegis exec, aegis app-server, etc.)."
         },
         "status": {
           "allOf": [

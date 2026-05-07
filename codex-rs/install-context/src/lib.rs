@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 const RELEASES_DIRNAME: &str = "releases";
-const RESOURCES_DIRNAME: &str = "codex-resources";
+const RESOURCES_DIRNAME: &str = "aegis-resources";
 const STANDALONE_PACKAGES_DIRNAME: &str = "standalone";
 static INSTALL_CONTEXT: OnceLock<InstallContext> = OnceLock::new();
 
@@ -17,7 +17,7 @@ pub enum StandalonePlatform {
 pub enum InstallContext {
     Standalone {
         /// The managed standalone release directory, for example
-        /// `~/.codex/packages/standalone/releases/0.111.0-x86_64-unknown-linux-musl`.
+        /// `~/.aegis/packages/standalone/releases/0.111.0-x86_64-unknown-linux-musl`.
         release_dir: PathBuf,
         /// The bundled resource directory that sits next to the executable when
         /// this install ships managed dependencies.
@@ -25,16 +25,16 @@ pub enum InstallContext {
         /// The platform of the standalone release, either `Unix` or `Windows`.
         platform: StandalonePlatform,
     },
-    /// A Codex binary launched through the npm-managed `codex.js` shim.
+    /// An Aegis Code binary launched through the npm-managed `aegis.js` shim.
     Npm,
-    /// A Codex binary launched through the bun-managed `codex.js` shim.
+    /// An Aegis Code binary launched through the bun-managed `aegis.js` shim.
     Bun,
-    /// A Codex binary that appears to come from a Homebrew install prefix.
+    /// An Aegis Code binary that appears to come from a Homebrew install prefix.
     Brew,
     /// Any other execution environment.
     ///
     /// This commonly covers `cargo run`, app-bundled Codex binaries, custom
-    /// internal launchers, and tests that execute Codex from an arbitrary path.
+    /// internal launchers, and tests that execute Aegis Code from an arbitrary path.
     Other,
 }
 
@@ -89,8 +89,8 @@ impl InstallContext {
     pub fn current() -> &'static Self {
         INSTALL_CONTEXT.get_or_init(|| {
             let current_exe = std::env::current_exe().ok();
-            let managed_by_npm = std::env::var_os("CODEX_MANAGED_BY_NPM").is_some();
-            let managed_by_bun = std::env::var_os("CODEX_MANAGED_BY_BUN").is_some();
+            let managed_by_npm = std::env::var_os("AEGIS_MANAGED_BY_NPM").is_some();
+            let managed_by_bun = std::env::var_os("AEGIS_MANAGED_BY_BUN").is_some();
             Self::from_exe(
                 cfg!(target_os = "macos"),
                 current_exe.as_deref(),
@@ -178,7 +178,7 @@ mod tests {
             .join("packages/standalone/releases/1.2.3-x86_64-unknown-linux-musl");
         let resources_dir = release_dir.join(RESOURCES_DIRNAME);
         fs::create_dir_all(&resources_dir)?;
-        let exe_path = release_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = release_dir.join(if cfg!(windows) { "aegis.exe" } else { "aegis" });
         fs::write(&exe_path, "")?;
         fs::write(resources_dir.join(default_rg_command()), "")?;
         let canonical_release_dir = release_dir.canonicalize()?;
@@ -209,7 +209,7 @@ mod tests {
             .path()
             .join("packages/standalone/releases/1.2.3-x86_64-unknown-linux-musl");
         fs::create_dir_all(&release_dir)?;
-        let exe_path = release_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = release_dir.join(if cfg!(windows) { "aegis.exe" } else { "aegis" });
         fs::write(&exe_path, "")?;
 
         let context = InstallContext::from_exe_with_codex_home(
@@ -227,7 +227,7 @@ mod tests {
     fn npm_and_bun_take_precedence() {
         let npm_context = InstallContext::from_exe_with_codex_home(
             /*is_macos*/ false,
-            /*current_exe*/ Some(Path::new("/tmp/codex")),
+            /*current_exe*/ Some(Path::new("/tmp/aegis")),
             /*managed_by_npm*/ true,
             /*managed_by_bun*/ false,
             /*codex_home*/ None,
@@ -236,7 +236,7 @@ mod tests {
 
         let bun_context = InstallContext::from_exe_with_codex_home(
             /*is_macos*/ false,
-            /*current_exe*/ Some(Path::new("/tmp/codex")),
+            /*current_exe*/ Some(Path::new("/tmp/aegis")),
             /*managed_by_npm*/ false,
             /*managed_by_bun*/ true,
             /*codex_home*/ None,
@@ -248,7 +248,7 @@ mod tests {
     fn brew_is_detected_on_macos_prefixes() {
         let context = InstallContext::from_exe_with_codex_home(
             /*is_macos*/ true,
-            /*current_exe*/ Some(Path::new("/opt/homebrew/bin/codex")),
+            /*current_exe*/ Some(Path::new("/opt/homebrew/bin/aegis")),
             /*managed_by_npm*/ false,
             /*managed_by_bun*/ false,
             /*codex_home*/ None,

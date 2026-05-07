@@ -595,7 +595,7 @@ mod tests {
                 ),
                 (
                     StatusLineItem::CurrentDir.preview_item(),
-                    "~/codex-rs".to_string(),
+                    "~/aegis-rs".to_string(),
                 ),
                 (
                     StatusLineItem::GitBranch.preview_item(),

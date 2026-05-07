@@ -65,7 +65,7 @@ change active behavior.
 The v1 learning loop is asynchronous:
 
 ```text
-aegis-code -> structured events -> aegis-daemon -> alerts/intelligence
+aegis -> structured events -> aegis-daemon -> alerts/intelligence
   -> candidate context pack -> promotion gate -> future session
 ```
 

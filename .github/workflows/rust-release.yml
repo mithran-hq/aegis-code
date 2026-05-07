@@ -71,7 +71,7 @@ jobs:
             target: aarch64-apple-darwin
             bundle: primary
             artifact_name: aarch64-apple-darwin
-            binaries: "codex codex-responses-api-proxy"
+            binaries: "aegis codex-responses-api-proxy"
             build_dmg: "true"
           - runner: macos-15-xlarge
             target: aarch64-apple-darwin
@@ -83,7 +83,7 @@ jobs:
             target: x86_64-apple-darwin
             bundle: primary
             artifact_name: x86_64-apple-darwin
-            binaries: "codex codex-responses-api-proxy"
+            binaries: "aegis codex-responses-api-proxy"
             build_dmg: "true"
           - runner: macos-15-xlarge
             target: x86_64-apple-darwin
@@ -96,7 +96,7 @@ jobs:
             target: x86_64-unknown-linux-musl
             bundle: primary
             artifact_name: x86_64-unknown-linux-musl
-            binaries: "codex codex-responses-api-proxy bwrap"
+            binaries: "aegis codex-responses-api-proxy bwrap"
             build_dmg: "false"
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-musl
@@ -108,7 +108,7 @@ jobs:
             target: aarch64-unknown-linux-musl
             bundle: primary
             artifact_name: aarch64-unknown-linux-musl
-            binaries: "codex codex-responses-api-proxy bwrap"
+            binaries: "aegis codex-responses-api-proxy bwrap"
             build_dmg: "false"
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
@@ -320,9 +320,9 @@ jobs:
 
           target="${{ matrix.target }}"
           release_dir="target/${target}/release"
-          dmg_root="${RUNNER_TEMP}/codex-dmg-root"
-          volname="Codex (${target})"
-          dmg_path="${release_dir}/codex-${target}.dmg"
+          dmg_root="${RUNNER_TEMP}/aegis-dmg-root"
+          volname="Aegis Code (${target})"
+          dmg_path="${release_dir}/aegis-${target}.dmg"
 
           # The previous "MacOS code signing (binaries)" step signs + notarizes the
           # built artifacts in `${release_dir}`. This step packages *those same*
@@ -380,18 +380,18 @@ jobs:
           done
 
           if [[ "${{ matrix.target }}" == *linux* && "${{ matrix.bundle }}" == "primary" ]]; then
-            bundle_root="${RUNNER_TEMP}/codex-${{ matrix.target }}-bundle"
+            bundle_root="${RUNNER_TEMP}/aegis-${{ matrix.target }}-bundle"
             rm -rf "$bundle_root"
-            mkdir -p "$bundle_root/codex-resources"
-            cp "$dest/codex-${{ matrix.target }}" "$bundle_root/codex"
-            cp "$dest/bwrap-${{ matrix.target }}" "$bundle_root/codex-resources/bwrap"
-            chmod 0755 "$bundle_root/codex" "$bundle_root/codex-resources/bwrap"
-            tar -C "$bundle_root" -cf - codex codex-resources/bwrap |
-              zstd -T0 -19 -o "$dest/codex-${{ matrix.target }}-bundle.tar.zst"
+            mkdir -p "$bundle_root/aegis-resources"
+            cp "$dest/aegis-${{ matrix.target }}" "$bundle_root/aegis"
+            cp "$dest/bwrap-${{ matrix.target }}" "$bundle_root/aegis-resources/bwrap"
+            chmod 0755 "$bundle_root/aegis" "$bundle_root/aegis-resources/bwrap"
+            tar -C "$bundle_root" -cf - aegis aegis-resources/bwrap |
+              zstd -T0 -19 -o "$dest/aegis-${{ matrix.target }}-bundle.tar.zst"
           fi
 
           if [[ "${{ matrix.build_dmg }}" == "true" ]]; then
-            cp target/${{ matrix.target }}/release/codex-${{ matrix.target }}.dmg "$dest/codex-${{ matrix.target }}.dmg"
+            cp target/${{ matrix.target }}/release/aegis-${{ matrix.target }}.dmg "$dest/aegis-${{ matrix.target }}.dmg"
           fi
 
       - name: Compress artifacts
@@ -404,8 +404,8 @@ jobs:
           # For compatibility with environments that lack the `zstd` tool we
           # additionally create a `.tar.gz` alongside every binary we publish.
           # The end result is:
-          #   codex-<target>.zst          (existing)
-          #   codex-<target>.tar.gz       (new)
+          #   aegis-<target>.zst          (existing)
+          #   aegis-<target>.tar.gz       (new)
 
           # 1. Produce a .tar.gz for every file in the directory *before* we
           #    run `zstd --rm`, because that flag deletes the original files.
@@ -569,7 +569,7 @@ jobs:
         run: |
           ./scripts/stage_npm_packages.py \
             --release-version "$RELEASE_VERSION" \
-            --package codex \
+            --package aegis \
             --package codex-responses-api-proxy \
             --package codex-sdk
 
@@ -643,7 +643,7 @@ jobs:
           # Node 24 bundles npm >= 11.5.1, which trusted publishing requires.
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-          scope: "@openai"
+          scope: "@mithran"
 
       - name: Download npm tarballs from release
         env:
@@ -656,10 +656,10 @@ jobs:
           tag="$RELEASE_TAG"
           mkdir -p dist/npm
           patterns=(
-            "codex-npm-${version}.tgz"
-            "codex-npm-linux-*-${version}.tgz"
-            "codex-npm-darwin-*-${version}.tgz"
-            "codex-npm-win32-*-${version}.tgz"
+            "aegis-npm-${version}.tgz"
+            "aegis-npm-linux-*-${version}.tgz"
+            "aegis-npm-darwin-*-${version}.tgz"
+            "aegis-npm-win32-*-${version}.tgz"
             "codex-responses-api-proxy-npm-${version}.tgz"
             "codex-sdk-npm-${version}.tgz"
           )
@@ -682,19 +682,19 @@ jobs:
             prefix="${NPM_TAG}-"
           fi
 
-          root_tarball="dist/npm/codex-npm-${VERSION}.tgz"
+          root_tarball="dist/npm/aegis-npm-${VERSION}.tgz"
           sdk_tarball="dist/npm/codex-sdk-npm-${VERSION}.tgz"
           # Keep this list in sync with CODEX_PLATFORM_PACKAGES in
           # codex-cli/scripts/build_npm_package.py. The root wrapper advances
-          # @openai/codex@latest as soon as it publishes, so every platform
+          # @mithran/aegis@latest as soon as it publishes, so every platform
           # package it aliases must already exist in the registry first.
           platform_tarballs=(
-            "dist/npm/codex-npm-linux-x64-${VERSION}.tgz"
-            "dist/npm/codex-npm-linux-arm64-${VERSION}.tgz"
-            "dist/npm/codex-npm-darwin-x64-${VERSION}.tgz"
-            "dist/npm/codex-npm-darwin-arm64-${VERSION}.tgz"
-            "dist/npm/codex-npm-win32-x64-${VERSION}.tgz"
-            "dist/npm/codex-npm-win32-arm64-${VERSION}.tgz"
+            "dist/npm/aegis-npm-linux-x64-${VERSION}.tgz"
+            "dist/npm/aegis-npm-linux-arm64-${VERSION}.tgz"
+            "dist/npm/aegis-npm-darwin-x64-${VERSION}.tgz"
+            "dist/npm/aegis-npm-darwin-arm64-${VERSION}.tgz"
+            "dist/npm/aegis-npm-win32-x64-${VERSION}.tgz"
+            "dist/npm/aegis-npm-win32-arm64-${VERSION}.tgz"
           )
 
           for required_tarball in "${platform_tarballs[@]}" "${root_tarball}"; do
@@ -726,7 +726,7 @@ jobs:
           done
 
           # Publish the platform packages before the root CLI wrapper. The root
-          # wrapper advances @openai/codex@latest, so it should only publish
+          # wrapper advances @mithran/aegis@latest, so it should only publish
           # after the optional dependency versions it references exist.
           tarballs=(
             "${platform_tarballs[@]}"
@@ -742,12 +742,12 @@ jobs:
             tag=""
 
             case "${filename}" in
-              codex-npm-linux-*-"${VERSION}".tgz|codex-npm-darwin-*-"${VERSION}".tgz|codex-npm-win32-*-"${VERSION}".tgz)
-                platform="${filename#codex-npm-}"
+              aegis-npm-linux-*-"${VERSION}".tgz|aegis-npm-darwin-*-"${VERSION}".tgz|aegis-npm-win32-*-"${VERSION}".tgz)
+                platform="${filename#aegis-npm-}"
                 platform="${platform%-${VERSION}.tgz}"
                 tag="${prefix}${platform}"
                 ;;
-              codex-npm-"${VERSION}".tgz|codex-responses-api-proxy-npm-"${VERSION}".tgz|codex-sdk-npm-"${VERSION}".tgz)
+              aegis-npm-"${VERSION}".tgz|codex-responses-api-proxy-npm-"${VERSION}".tgz|codex-sdk-npm-"${VERSION}".tgz)
                 tag="${NPM_TAG}"
                 ;;
               *)
@@ -796,11 +796,11 @@ jobs:
       - name: Publish to WinGet
         uses: vedantmgoyal9/winget-releaser@7bd472be23763def6e16bd06cc8b1cdfab0e2fd5
         with:
-          identifier: OpenAI.Codex
+          identifier: Mithran.Aegis
           version: ${{ needs.release.outputs.version }}
           release-tag: ${{ needs.release.outputs.tag }}
           fork-user: openai-oss-forks
-          installers-regex: '^codex-(?:x86_64|aarch64)-pc-windows-msvc\.exe\.zip$'
+          installers-regex: '^aegis-(?:x86_64|aarch64)-pc-windows-msvc\.exe\.zip$'
           token: ${{ secrets.WINGET_PUBLISH_PAT }}
 
   update-branch:

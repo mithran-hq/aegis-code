@@ -186,7 +186,7 @@ pub async fn run_remote_executor(
         let request = config.registration_request(registration_id);
         let response = client.register_executor(&request).await?;
         eprintln!(
-            "codex exec-server remote executor {} registered with executor_id {}",
+            "aegis exec-server remote executor {} registered with executor_id {}",
             response.id, response.executor_id
         );
 

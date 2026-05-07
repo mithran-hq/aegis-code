@@ -14,7 +14,7 @@ Aegis Code should be easy to install locally and strict enough for team CI.
 The binary name is:
 
 ```bash
-aegis-code
+aegis
 ```
 
 Release artifacts should cover at least:
@@ -34,7 +34,7 @@ second implementation of the harness.
 Every distribution path should support:
 
 ```bash
-aegis-code doctor
+aegis doctor
 ```
 
 The diagnostic command should report binary version, upstream Codex base, config

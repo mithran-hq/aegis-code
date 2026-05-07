@@ -38,7 +38,7 @@ Use this skill directly for docs-only questions, citations, model/API guidance, 
 
 If MCP tools fail or no OpenAI docs resources are available:
 
-1. Run the install command yourself: `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`
+1. Run the install command yourself: `aegis mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`
 2. If it fails due to permissions/sandboxing, immediately retry the same command with escalated permissions and include a 1-sentence justification for approval. Do not ask the user to run it yet.
 3. Only if the escalated attempt fails, ask the user to run the install command.
 4. Ask the user to restart Codex.

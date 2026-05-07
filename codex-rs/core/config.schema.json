@@ -280,7 +280,7 @@
       "description": "Determine where Codex should store CLI auth credentials.",
       "oneOf": [
         {
-          "description": "Persist credentials in CODEX_HOME/auth.json.",
+          "description": "Persist credentials in AEGIS_HOME/auth.json.",
           "enum": [
             "file"
           ],
@@ -294,7 +294,7 @@
           "type": "string"
         },
         {
-          "description": "Use keyring when available; otherwise, fall back to a file in CODEX_HOME.",
+          "description": "Use keyring when available; otherwise, fall back to a file in AEGIS_HOME.",
           "enum": [
             "auto"
           ],
@@ -727,7 +727,7 @@
               "$ref": "#/definitions/AbsolutePathBuf"
             }
           ],
-          "description": "Directory where Codex writes effective session config lock files."
+          "description": "Directory where Aegis Code writes effective session config lock files."
         },
         "load_path": {
           "allOf": [
@@ -910,7 +910,7 @@
     },
     "History": {
       "additionalProperties": false,
-      "description": "Settings that govern if and what will be written to `~/.codex/history.jsonl`.",
+      "description": "Settings that govern if and what will be written to `~/.aegis/history.jsonl`.",
       "properties": {
         "max_bytes": {
           "default": null,
@@ -1652,7 +1652,7 @@
           "type": "string"
         },
         {
-          "description": "CODEX_HOME/.credentials.json This file will be readable to Codex and other applications running as the same user.",
+          "description": "AEGIS_HOME/.credentials.json This file will be readable to Aegis Code and other applications running as the same user.",
           "enum": [
             "file"
           ],
@@ -2667,7 +2667,7 @@
         },
         "theme": {
           "default": null,
-          "description": "Syntax highlighting theme name (kebab-case).\n\nWhen set, overrides automatic light/dark theme detection. Use `/theme` in the TUI or see `$CODEX_HOME/themes` for custom themes.",
+          "description": "Syntax highlighting theme name (kebab-case).\n\nWhen set, overrides automatic light/dark theme detection. Use `/theme` in the TUI or see `$AEGIS_HOME/themes` for custom themes.",
           "type": "string"
         },
         "vim_mode_default": {
@@ -3762,7 +3762,7 @@
       ]
     }
   },
-  "description": "Base config deserialized from ~/.codex/config.toml.",
+  "description": "Base config deserialized from ~/.aegis/config.toml.",
   "properties": {
     "agents": {
       "allOf": [
@@ -4239,7 +4239,7 @@
         "max_bytes": null,
         "persistence": "save-all"
       },
-      "description": "Settings that govern if and what will be written to `~/.codex/history.jsonl`."
+      "description": "Settings that govern if and what will be written to `~/.aegis/history.jsonl`."
     },
     "hooks": {
       "allOf": [
@@ -4271,7 +4271,7 @@
           "$ref": "#/definitions/AbsolutePathBuf"
         }
       ],
-      "description": "Directory where Codex writes log files, for example `codex-tui.log`. Defaults to `$CODEX_HOME/log`."
+      "description": "Directory where Aegis Code writes log files, for example `codex-tui.log`. Defaults to `$AEGIS_HOME/log`."
     },
     "marketplaces": {
       "additionalProperties": {
@@ -4547,7 +4547,7 @@
           "$ref": "#/definitions/AbsolutePathBuf"
         }
       ],
-      "description": "Directory where Codex stores the SQLite state DB. Defaults to `$CODEX_SQLITE_HOME` when set. Otherwise uses `$CODEX_HOME`."
+      "description": "Directory where Codex stores the SQLite state DB. Defaults to `$CODEX_SQLITE_HOME` when set. Otherwise uses `$AEGIS_HOME`."
     },
     "suppress_unstable_features_warning": {
       "description": "Suppress warnings about unstable (under development) features.",

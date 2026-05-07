@@ -13,7 +13,7 @@ generated commit messages so commits make Codex's involvement explicit. This
 behavior is gated by the `codex_git_commit` feature flag; the top-level
 `commit_attribution` setting is only used when that feature is enabled.
 
-Add the following to `~/.codex/config.toml`:
+Add the following to `~/.aegis/config.toml`:
 
 ```toml
 commit_attribution = "Codex <noreply@openai.com>"

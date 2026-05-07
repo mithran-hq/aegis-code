@@ -189,7 +189,7 @@ pub(super) use toml::Value as TomlValue;
 
 pub(super) fn chatwidget_snapshot_dir() -> PathBuf {
     let snapshot_file = codex_utils_cargo_bin::find_resource!(
-        "src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_tall.snap"
+        "src/chatwidget/snapshots/aegis_tui__chatwidget__tests__chatwidget_tall.snap"
     )
     .expect("snapshot file");
     snapshot_file
