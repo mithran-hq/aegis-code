@@ -195,7 +195,7 @@ impl OllamaClient {
                                         return;
                                     }
                                     if let Some(status) = value.get("status").and_then(|s| s.as_str())
-                                        && status == "success" { yield PullEvent::Success; return; }
+                                        && status == "success" { return; }
                                 }
                             }
                         }
@@ -331,6 +331,95 @@ mod tests {
 
         let version = client.fetch_version().await.expect("version fetch");
         assert_eq!(version, Some(Version::new(0, 14, 1)));
+    }
+
+    #[tokio::test]
+    async fn test_pull_model_stream_success() {
+        if std::env::var(codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
+            tracing::info!(
+                "{} is set; skipping test_pull_model_stream_success",
+                codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR
+            );
+            return;
+        }
+
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/api/pull"))
+            .and(wiremock::matchers::body_string_contains(
+                "\"model\":\"gpt-oss:20b\"",
+            ))
+            .and(wiremock::matchers::body_string_contains("\"stream\":true"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_raw(
+                concat!(
+                    "{\"status\":\"pulling manifest\"}\n",
+                    "{\"digest\":\"sha256:abc\",\"total\":100,\"completed\":50}\n",
+                    "{\"status\":\"success\"}\n",
+                ),
+                "application/x-ndjson",
+            ))
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::from_host_root(server.uri());
+        let mut stream = client
+            .pull_model_stream("gpt-oss:20b")
+            .await
+            .expect("pull stream");
+
+        assert!(
+            matches!(stream.next().await, Some(PullEvent::Status(status)) if status == "pulling manifest")
+        );
+        assert!(matches!(
+            stream.next().await,
+            Some(PullEvent::ChunkProgress {
+                digest,
+                total: Some(100),
+                completed: Some(50),
+            }) if digest == "sha256:abc"
+        ));
+        assert!(
+            matches!(stream.next().await, Some(PullEvent::Status(status)) if status == "success")
+        );
+        assert!(matches!(stream.next().await, Some(PullEvent::Success)));
+        assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_pull_with_reporter_returns_stream_error() {
+        if std::env::var(codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
+            tracing::info!(
+                "{} is set; skipping test_pull_with_reporter_returns_stream_error",
+                codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR
+            );
+            return;
+        }
+
+        struct NoopReporter;
+
+        impl PullProgressReporter for NoopReporter {
+            fn on_event(&mut self, _event: &PullEvent) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/api/pull"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_raw("{\"error\":\"model not found\"}\n", "application/x-ndjson"),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::from_host_root(server.uri());
+        let err = client
+            .pull_with_reporter("missing-model", &mut NoopReporter)
+            .await
+            .expect_err("stream error should fail pull");
+
+        assert!(err.to_string().contains("Pull failed: model not found"));
     }
 
     #[tokio::test]

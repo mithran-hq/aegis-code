@@ -59,6 +59,48 @@ fn human_report_lists_context_pack_status() {
 }
 
 #[test]
+fn human_report_makes_local_provider_endpoint_and_auth_clear() {
+    let report = DoctorReport {
+        version: "0.1.0".to_string(),
+        codex_home: "/tmp/aegis-home".to_string(),
+        cwd: "/tmp/project".to_string(),
+        config_path: "/tmp/aegis-home/config.toml".to_string(),
+        provider: ProviderDiagnostic {
+            id: "ollama".to_string(),
+            name: "gpt-oss".to_string(),
+            model: "gpt-oss:20b".to_string(),
+            wire_api: "responses".to_string(),
+            base_url: Some("http://localhost:11434/v1".to_string()),
+            requires_openai_auth: false,
+            supports_websockets: false,
+            env_key: None,
+            env_key_present: None,
+        },
+        aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus {
+            enabled: false,
+            alerts_path: "/tmp/aegis-home/aegis-engine/alerts.jsonl".to_string(),
+            candidate_inputs_path: "/tmp/aegis-home/aegis-engine/candidate-pack-inputs.jsonl"
+                .to_string(),
+            malformed_count: 0,
+            stale_count: 0,
+            active_warning_count: 0,
+            active_blocking_count: 0,
+            last_read_error: None,
+        },
+        context_packs: Vec::new(),
+    };
+
+    let output = format_doctor_report_human(&report);
+
+    assert!(output.contains("selected: ollama (gpt-oss)"));
+    assert!(output.contains("model: gpt-oss:20b"));
+    assert!(output.contains("wire API: responses"));
+    assert!(output.contains("base URL: http://localhost:11434/v1"));
+    assert!(output.contains("OpenAI auth: false, websockets: false"));
+    assert!(output.contains("env key: none"));
+}
+
+#[test]
 fn provider_report_serializes_env_key_presence_without_secret_value() {
     let report = DoctorReport {
         version: "0.1.0".to_string(),

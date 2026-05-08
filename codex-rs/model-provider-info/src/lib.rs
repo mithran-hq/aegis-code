@@ -440,6 +440,10 @@ pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
+pub const AEGIS_OSS_BASE_URL_ENV_VAR: &str = "AEGIS_OSS_BASE_URL";
+pub const AEGIS_OSS_PORT_ENV_VAR: &str = "AEGIS_OSS_PORT";
+pub const CODEX_OSS_BASE_URL_ENV_VAR: &str = "CODEX_OSS_BASE_URL";
+pub const CODEX_OSS_PORT_ENV_VAR: &str = "CODEX_OSS_PORT";
 
 /// Built-in default provider list.
 pub fn built_in_model_providers(
@@ -511,22 +515,29 @@ pub fn merge_configured_model_providers(
 }
 
 pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
-    // These CODEX_OSS_ environment variables are experimental: we may
-    // switch to reading values from config.toml instead.
-    let default_codex_oss_base_url = format!(
-        "http://localhost:{codex_oss_port}/v1",
-        codex_oss_port = std::env::var("CODEX_OSS_PORT")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(default_provider_port)
-    );
+    create_oss_provider_from_env(default_provider_port, wire_api, |key| {
+        std::env::var(key).ok()
+    })
+}
 
-    let codex_oss_base_url = std::env::var("CODEX_OSS_BASE_URL")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or(default_codex_oss_base_url);
-    create_oss_provider_with_base_url(&codex_oss_base_url, wire_api)
+fn create_oss_provider_from_env(
+    default_provider_port: u16,
+    wire_api: WireApi,
+    env_lookup: impl Fn(&str) -> Option<String>,
+) -> ModelProviderInfo {
+    let env_value = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|key| env_lookup(key).filter(|value| !value.trim().is_empty()))
+    };
+
+    let oss_port = env_value(&[AEGIS_OSS_PORT_ENV_VAR, CODEX_OSS_PORT_ENV_VAR])
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(default_provider_port);
+    let default_oss_base_url = format!("http://localhost:{oss_port}/v1");
+
+    let oss_base_url = env_value(&[AEGIS_OSS_BASE_URL_ENV_VAR, CODEX_OSS_BASE_URL_ENV_VAR])
+        .unwrap_or(default_oss_base_url);
+    create_oss_provider_with_base_url(&oss_base_url, wire_api)
 }
 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {

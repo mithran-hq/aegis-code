@@ -20,12 +20,12 @@ pub struct SharedCliOptions {
     #[arg(long, short = 'm')]
     pub model: Option<String>,
 
-    /// Use open-source provider.
+    /// Use a local OSS provider.
     #[arg(long = "oss", default_value_t = false)]
     pub oss: bool,
 
-    /// Specify which local provider to use (lmstudio or ollama).
-    /// If not specified with --oss, will use config default or show selection.
+    /// Specify which local OSS provider to use (lmstudio or ollama).
+    /// If not specified with --oss, Aegis uses config default or shows selection.
     #[arg(long = "local-provider")]
     pub oss_provider: Option<String>,
 

@@ -3271,6 +3271,27 @@ mod tests {
     }
 
     #[test]
+    fn doctor_accepts_root_local_provider_flags() {
+        let cli = MultitoolCli::try_parse_from([
+            "aegis",
+            "--oss",
+            "--local-provider",
+            "ollama",
+            "doctor",
+            "--json",
+        ])
+        .expect("parse");
+
+        let Some(Subcommand::Doctor(cmd)) = cli.subcommand else {
+            panic!("expected doctor subcommand");
+        };
+
+        assert!(cmd.json);
+        assert!(cli.interactive.oss);
+        assert_eq!(cli.interactive.oss_provider.as_deref(), Some("ollama"));
+    }
+
+    #[test]
     fn responses_subcommand_is_not_registered() {
         let command = MultitoolCli::command();
         assert!(
@@ -3550,6 +3571,8 @@ mod tests {
                 "resume",
                 "sid",
                 "--oss",
+                "--local-provider",
+                "ollama",
                 "--search",
                 "--sandbox",
                 "workspace-write",
@@ -3569,6 +3592,7 @@ mod tests {
 
         assert_eq!(interactive.model.as_deref(), Some("gpt-5.1-test"));
         assert!(interactive.oss);
+        assert_eq!(interactive.oss_provider.as_deref(), Some("ollama"));
         assert_eq!(interactive.config_profile.as_deref(), Some("my-profile"));
         assert_matches!(
             interactive.sandbox_mode,

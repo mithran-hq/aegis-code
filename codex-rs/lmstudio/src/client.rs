@@ -351,6 +351,36 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_load_model_posts_responses_smoke_request() {
+        if std::env::var(codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
+            tracing::info!(
+                "{} is set; skipping test_load_model_posts_responses_smoke_request",
+                codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR
+            );
+            return;
+        }
+
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/responses"))
+            .and(wiremock::matchers::body_string_contains(
+                "\"model\":\"openai/gpt-oss-20b\"",
+            ))
+            .and(wiremock::matchers::body_string_contains(
+                "\"max_output_tokens\":1",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = LMStudioClient::from_host_root(server.uri());
+        client
+            .load_model("openai/gpt-oss-20b")
+            .await
+            .expect("load model smoke request should pass");
+    }
+
     #[test]
     fn test_find_lms() {
         let result = LMStudioClient::find_lms();

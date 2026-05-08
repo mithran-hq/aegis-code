@@ -45,6 +45,13 @@ built-in `openai` provider and custom providers configured with
 OpenAI auth, custom provider TOML, env vars, streaming behavior, and
 `aegis doctor` diagnostics.
 
+## Local OSS providers
+
+Aegis Code also preserves local OSS model workflows for Ollama and LM Studio.
+See [Local OSS Providers](local-oss-providers.md) for `--oss`,
+`--local-provider`, `oss_provider`, endpoint env vars, default models,
+readiness checks, limitations, and `aegis doctor` troubleshooting.
+
 ## Commit attribution
 
 Codex can add a [git trailer](https://git-scm.com/docs/git-interpret-trailers) to

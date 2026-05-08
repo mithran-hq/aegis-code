@@ -100,21 +100,14 @@ impl OssSelectionWidget<'_> {
             },
             ProviderOption {
                 name: "Ollama (Responses)".to_string(),
-                status: ollama_status.clone(),
-            },
-            ProviderOption {
-                name: "Ollama (Chat)".to_string(),
                 status: ollama_status,
             },
         ];
 
         let mut contents: Vec<Line> = vec![
-            Line::from(vec![
-                "? ".fg(Color::Blue),
-                "Select an open-source provider".bold(),
-            ]),
+            Line::from(vec!["? ".fg(Color::Blue), "Select a local provider".bold()]),
             Line::from(""),
-            Line::from("  Choose which local AI server to use for your session."),
+            Line::from("  Choose which local model server to use for your session."),
             Line::from(""),
         ];
 

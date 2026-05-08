@@ -5,6 +5,12 @@ use pretty_assertions::assert_eq;
 use std::num::NonZeroU64;
 use tempfile::tempdir;
 
+fn env_map_lookup<'a>(
+    values: &'a std::collections::HashMap<&'static str, &'static str>,
+) -> impl Fn(&str) -> Option<String> + 'a {
+    move |key| values.get(key).map(|value| (*value).to_string())
+}
+
 #[test]
 fn test_deserialize_ollama_model_provider_toml() {
     let azure_provider_toml = r#"
@@ -295,6 +301,84 @@ fn test_built_in_model_providers_include_amazon_bedrock() {
             .get(AMAZON_BEDROCK_PROVIDER_ID)
             .map(ModelProviderInfo::is_amazon_bedrock),
         Some(true)
+    );
+}
+
+#[test]
+fn test_built_in_local_oss_providers_are_responses_compatible() {
+    let providers = built_in_model_providers(/*openai_base_url*/ None);
+
+    let ollama = providers
+        .get(OLLAMA_OSS_PROVIDER_ID)
+        .expect("ollama provider");
+    assert_eq!(ollama.name, "gpt-oss");
+    assert_eq!(
+        ollama.base_url.as_deref(),
+        Some("http://localhost:11434/v1")
+    );
+    assert_eq!(ollama.wire_api, WireApi::Responses);
+    assert_eq!(ollama.env_key, None);
+    assert!(!ollama.requires_openai_auth);
+    assert!(!ollama.supports_websockets);
+
+    let lmstudio = providers
+        .get(LMSTUDIO_OSS_PROVIDER_ID)
+        .expect("lmstudio provider");
+    assert_eq!(lmstudio.name, "gpt-oss");
+    assert_eq!(
+        lmstudio.base_url.as_deref(),
+        Some("http://localhost:1234/v1")
+    );
+    assert_eq!(lmstudio.wire_api, WireApi::Responses);
+    assert_eq!(lmstudio.env_key, None);
+    assert!(!lmstudio.requires_openai_auth);
+    assert!(!lmstudio.supports_websockets);
+}
+
+#[test]
+fn test_aegis_oss_base_url_env_takes_precedence_over_legacy_codex_env() {
+    let env = std::collections::HashMap::from([
+        (CODEX_OSS_BASE_URL_ENV_VAR, "http://legacy.example.test/v1"),
+        (AEGIS_OSS_BASE_URL_ENV_VAR, "http://aegis.example.test/v1"),
+    ]);
+
+    let provider = create_oss_provider_from_env(11434, WireApi::Responses, env_map_lookup(&env));
+
+    assert_eq!(
+        provider.base_url.as_deref(),
+        Some("http://aegis.example.test/v1")
+    );
+}
+
+#[test]
+fn test_aegis_oss_port_env_takes_precedence_over_legacy_codex_env() {
+    let env = std::collections::HashMap::from([
+        (CODEX_OSS_PORT_ENV_VAR, "11435"),
+        (AEGIS_OSS_PORT_ENV_VAR, "11436"),
+    ]);
+
+    let provider = create_oss_provider_from_env(11434, WireApi::Responses, env_map_lookup(&env));
+
+    assert_eq!(
+        provider.base_url.as_deref(),
+        Some("http://localhost:11436/v1")
+    );
+}
+
+#[test]
+fn test_legacy_codex_oss_env_still_works_as_fallback() {
+    let base_url_env =
+        std::collections::HashMap::from([(CODEX_OSS_BASE_URL_ENV_VAR, "http://legacy.test/v1")]);
+    let provider =
+        create_oss_provider_from_env(11434, WireApi::Responses, env_map_lookup(&base_url_env));
+    assert_eq!(provider.base_url.as_deref(), Some("http://legacy.test/v1"));
+
+    let port_env = std::collections::HashMap::from([(CODEX_OSS_PORT_ENV_VAR, "11437")]);
+    let provider =
+        create_oss_provider_from_env(11434, WireApi::Responses, env_map_lookup(&port_env));
+    assert_eq!(
+        provider.base_url.as_deref(),
+        Some("http://localhost:11437/v1")
     );
 }
 

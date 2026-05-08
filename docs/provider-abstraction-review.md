@@ -41,6 +41,7 @@ search through provider capabilities.
 Ollama and LM Studio are local OSS providers created by
 `create_oss_provider`. They use an OpenAI-compatible `/v1` base URL, default
 ports `11434` and `1234`, optional `CODEX_OSS_PORT` and `CODEX_OSS_BASE_URL`
+fallback overrides, preferred `AEGIS_OSS_PORT` and `AEGIS_OSS_BASE_URL`
 overrides, no auth, no WebSocket support, and the same `responses` wire shape as
 remote compatible providers.
 
