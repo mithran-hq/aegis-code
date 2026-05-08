@@ -81,6 +81,8 @@ use codex_otel::set_parent_from_w3c_trace_context;
 use codex_protocol::ThreadId;
 use codex_protocol::ToolName;
 use codex_protocol::account::PlanType as AccountPlanType;
+use codex_protocol::aegis_engine_alert::AegisEngineAlertAction;
+use codex_protocol::aegis_engine_alert::AegisEngineAlertSeverity;
 use codex_protocol::aegis_safety_event::AegisSafetyEvent;
 use codex_protocol::approvals::ElicitationRequestEvent;
 use codex_protocol::approvals::ExecPolicyAmendment;
@@ -95,6 +97,12 @@ use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::items::TurnItem;
 use codex_protocol::items::UserMessageItem;
 use codex_protocol::mcp::CallToolResult;
+use codex_protocol::method_state::MethodEngineAlert;
+use codex_protocol::method_state::MethodEngineAlertAction;
+use codex_protocol::method_state::MethodEngineAlertSeverity;
+use codex_protocol::method_state::MethodEngineAlertSourceEvent;
+use codex_protocol::method_state::MethodEngineAlertStatus;
+use codex_protocol::method_state::MethodWorkStatus;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::BaseInstructions;
@@ -1544,8 +1552,13 @@ impl Session {
     pub(crate) async fn record_aegis_engine_event(
         &self,
         event_id: &str,
-        safety_event: AegisSafetyEvent,
+        mut safety_event: AegisSafetyEvent,
     ) -> Result<(), crate::aegis_engine_sink::AegisEngineSinkError> {
+        stamp_aegis_safety_event(event_id, &mut safety_event);
+        self.services
+            .aegis_engine_alerts
+            .observe_event(&safety_event)
+            .await;
         if let Err(err) = self.services.aegis_engine_sink.record(safety_event) {
             let cloned = err.clone();
             self.send_event_raw(Event {
@@ -1557,11 +1570,115 @@ impl Session {
             .await;
             return Err(cloned);
         }
+        self.ingest_aegis_engine_alerts(event_id).await;
         Ok(())
     }
 
     pub(crate) fn aegis_engine_event_emission_required(&self) -> bool {
         self.services.aegis_engine_sink.required()
+    }
+
+    pub(crate) async fn ingest_aegis_engine_alerts(&self, event_id: &str) {
+        let session_id = self.session_id().to_string();
+        let thread_id = self.thread_id().to_string();
+        let result = self
+            .services
+            .aegis_engine_alerts
+            .ingest(&session_id, &thread_id)
+            .await;
+
+        for diagnostic in result.diagnostics {
+            self.send_event_raw(Event {
+                id: event_id.to_string(),
+                msg: EventMsg::Warning(WarningEvent {
+                    message: diagnostic,
+                }),
+            })
+            .await;
+        }
+        if result.alerts.is_empty() {
+            return;
+        }
+
+        let mut state_to_persist = {
+            let state = self.state.lock().await;
+            match state.method_state_status() {
+                crate::state::MethodStatePersistenceStatus::Loaded { state, .. } => Some(state),
+                crate::state::MethodStatePersistenceStatus::Missing
+                | crate::state::MethodStatePersistenceStatus::Invalid { .. } => None,
+            }
+        };
+
+        if let Some(method_state) = &mut state_to_persist {
+            let mut blocked = false;
+            for applied in &result.alerts {
+                if method_state
+                    .engine_alerts
+                    .iter()
+                    .any(|existing| existing.id == applied.alert.alert_id)
+                {
+                    continue;
+                }
+                let method_alert = method_alert_from_applied(applied);
+                blocked |= method_alert.status == MethodEngineAlertStatus::Blocked;
+                method_state.engine_alerts.push(method_alert);
+            }
+            if blocked {
+                method_state.status = MethodWorkStatus::Blocked;
+            }
+            if let Err(err) = self.replace_method_state(method_state.clone()).await {
+                self.send_event_raw(Event {
+                    id: event_id.to_string(),
+                    msg: EventMsg::Warning(WarningEvent {
+                        message: format!("failed to persist Aegis Engine alert state: {err:#}"),
+                    }),
+                })
+                .await;
+            }
+        } else if result.alerts.iter().any(|applied| {
+            matches!(
+                applied.alert.severity,
+                AegisEngineAlertSeverity::Suspicious | AegisEngineAlertSeverity::Malicious
+            )
+        }) {
+            self.send_event_raw(Event {
+                id: event_id.to_string(),
+                msg: EventMsg::Warning(WarningEvent {
+                    message: "Aegis Engine alerts were found, but no loaded method state is available to mark warned or blocked.".to_string(),
+                }),
+            })
+            .await;
+        }
+
+        for applied in result.alerts {
+            match applied.alert.severity {
+                AegisEngineAlertSeverity::Safe => {}
+                AegisEngineAlertSeverity::Suspicious => {
+                    self.send_event_raw(Event {
+                        id: event_id.to_string(),
+                        msg: EventMsg::Warning(WarningEvent {
+                            message: format!(
+                                "Aegis Engine warning `{}`: {}",
+                                applied.alert.alert_id, applied.alert.summary
+                            ),
+                        }),
+                    })
+                    .await;
+                }
+                AegisEngineAlertSeverity::Malicious => {
+                    self.send_event_raw(Event {
+                        id: event_id.to_string(),
+                        msg: EventMsg::Warning(WarningEvent {
+                            message: format!(
+                                "Aegis Engine blocked method state for alert `{}`: {}",
+                                applied.alert.alert_id, applied.alert.summary
+                            ),
+                        }),
+                    })
+                    .await;
+                }
+            }
+        }
     }
 
     /// Forwards terminal turn events from spawned MultiAgentV2 children to their direct parent.
@@ -3328,6 +3445,84 @@ impl Session {
     fn show_raw_agent_reasoning(&self) -> bool {
         self.services.show_raw_agent_reasoning
     }
+}
+
+fn stamp_aegis_safety_event(fallback_id: &str, event: &mut AegisSafetyEvent) {
+    if event.event_id.is_none() {
+        event.event_id = Some(stable_aegis_event_id(fallback_id, event));
+    }
+    if event.created_at_unix_seconds.is_none() {
+        event.created_at_unix_seconds = Some(now_unix_seconds());
+    }
+}
+
+fn stable_aegis_event_id(fallback_id: &str, event: &AegisSafetyEvent) -> String {
+    let discriminator = string_context_value(&event.context, "call_id")
+        .or_else(|| string_context_value(&event.context, "evidence_id"))
+        .or_else(|| string_context_value(&event.context, "finding_id"))
+        .or_else(|| string_context_value(&event.context, "status"))
+        .unwrap_or_else(|| fallback_id.to_string());
+    format!("aegis-code:{}:{discriminator}", event.category.tag_value())
+}
+
+fn method_alert_from_applied(
+    applied: &crate::aegis_engine_alerts::AppliedAegisEngineAlert,
+) -> MethodEngineAlert {
+    MethodEngineAlert {
+        id: applied.alert.alert_id.clone(),
+        summary: applied.alert.summary.clone(),
+        severity: match applied.alert.severity {
+            AegisEngineAlertSeverity::Safe => MethodEngineAlertSeverity::Safe,
+            AegisEngineAlertSeverity::Suspicious => MethodEngineAlertSeverity::Suspicious,
+            AegisEngineAlertSeverity::Malicious => MethodEngineAlertSeverity::Malicious,
+        },
+        action: match applied.alert.action {
+            AegisEngineAlertAction::Observe => MethodEngineAlertAction::Observe,
+            AegisEngineAlertAction::Warn => MethodEngineAlertAction::Warn,
+            AegisEngineAlertAction::Block => MethodEngineAlertAction::Block,
+        },
+        status: match (applied.alert.severity, applied.alert.action) {
+            (AegisEngineAlertSeverity::Malicious, _) | (_, AegisEngineAlertAction::Block) => {
+                MethodEngineAlertStatus::Blocked
+            }
+            (AegisEngineAlertSeverity::Suspicious, _) | (_, AegisEngineAlertAction::Warn) => {
+                MethodEngineAlertStatus::Warned
+            }
+            (AegisEngineAlertSeverity::Safe, AegisEngineAlertAction::Observe) => {
+                MethodEngineAlertStatus::Observed
+            }
+        },
+        source_event: MethodEngineAlertSourceEvent {
+            event_id: applied.alert.source_event.event_id.clone(),
+            category: applied.alert.source_event.category.clone(),
+            session_id: applied.alert.source_event.session_id.clone(),
+            thread_id: applied.alert.source_event.thread_id.clone(),
+            turn_id: applied.alert.source_event.turn_id.clone(),
+            call_id: applied.alert.source_event.call_id.clone(),
+            evidence_id: applied.alert.source_event.evidence_id.clone(),
+            finding_id: applied.alert.source_event.finding_id.clone(),
+        },
+        created_at_unix_seconds: applied.alert.created_at_unix_seconds,
+        received_at_unix_seconds: applied.received_at_unix_seconds,
+        candidate_input_id: applied.candidate_input_id.clone(),
+    }
+}
+
+fn string_context_value(
+    context: &codex_protocol::aegis_safety_event::AegisSafetyEventContext,
+    key: &str,
+) -> Option<String> {
+    context
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn now_unix_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 pub(crate) fn emit_subagent_session_started(

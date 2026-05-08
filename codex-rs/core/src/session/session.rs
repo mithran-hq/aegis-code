@@ -1,4 +1,5 @@
 use super::*;
+use crate::aegis_engine_alerts::AegisEngineAlertIngestor;
 use crate::aegis_engine_sink::AegisEngineSink;
 use crate::aegis_safety_event::method_evidence_event;
 use crate::aegis_safety_event::resume_status_event;
@@ -449,6 +450,7 @@ mod method_state_tests {
                 evidence_requirement_ids: vec!["requirement:loader".to_string()],
                 rationale: None,
             }],
+            engine_alerts: Vec::new(),
             review_findings: vec![MethodReviewFinding {
                 id: "finding:none".to_string(),
                 summary: "No blocking findings".to_string(),
@@ -1428,6 +1430,7 @@ impl Session {
             });
             let (aegis_engine_sink, aegis_engine_diagnostics) =
                 AegisEngineSink::start(&config.aegis_engine).await?;
+            let aegis_engine_alerts = AegisEngineAlertIngestor::start(&config.aegis_engine);
             for message in aegis_engine_diagnostics {
                 post_session_configured_events.push(Event {
                     id: INITIAL_SUBMIT_ID.to_owned(),
@@ -1468,6 +1471,7 @@ impl Session {
                 main_execve_wrapper_exe: config.main_execve_wrapper_exe.clone(),
                 analytics_events_client,
                 aegis_engine_sink,
+                aegis_engine_alerts,
                 hooks: arc_swap::ArcSwap::from_pointee(hooks),
                 rollout_thread_trace,
                 user_shell: Arc::new(default_shell),
@@ -1571,6 +1575,7 @@ impl Session {
             for event in events {
                 sess.send_event_raw(event).await;
             }
+            sess.ingest_aegis_engine_alerts(INITIAL_SUBMIT_ID).await;
 
             // Start the watcher after SessionConfigured so it cannot emit earlier events.
             sess.start_skills_watcher_listener();

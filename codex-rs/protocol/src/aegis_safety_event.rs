@@ -14,6 +14,12 @@ pub type AegisSafetyEventContext = BTreeMap<String, Value>;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(deny_unknown_fields)]
 pub struct AegisSafetyEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub created_at_unix_seconds: Option<i64>,
     pub source: AegisSafetyEventSource,
     pub summary: String,
     pub category: AegisSafetyEventCategory,
@@ -42,6 +48,8 @@ impl AegisSafetyEvent {
         }
 
         Self {
+            event_id: None,
+            created_at_unix_seconds: None,
             source: AegisSafetyEventSource::AegisCode,
             summary: summary.into(),
             category,

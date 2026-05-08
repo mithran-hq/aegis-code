@@ -312,6 +312,9 @@ mod tests {
         let config = AegisEngineConfig {
             enabled: true,
             jsonl_path: tmp.path().join("events.jsonl"),
+            alerts_path: tmp.path().join("alerts.jsonl"),
+            candidate_inputs_path: tmp.path().join("candidate-pack-inputs.jsonl"),
+            alert_stale_after_seconds: 86_400,
             buffer_capacity: 8,
             failure_mode: AegisEngineFailureMode::BestEffort,
             mirror: AegisEngineMirrorConfig::None,
@@ -334,6 +337,9 @@ mod tests {
         let config = AegisEngineConfig {
             enabled: false,
             jsonl_path: tmp.path().join("events.jsonl"),
+            alerts_path: tmp.path().join("alerts.jsonl"),
+            candidate_inputs_path: tmp.path().join("candidate-pack-inputs.jsonl"),
+            alert_stale_after_seconds: 86_400,
             buffer_capacity: 8,
             failure_mode: AegisEngineFailureMode::BestEffort,
             mirror: AegisEngineMirrorConfig::None,
@@ -352,6 +358,9 @@ mod tests {
         let config = AegisEngineConfig {
             enabled: true,
             jsonl_path: parent_file.join("events.jsonl"),
+            alerts_path: parent_file.join("alerts.jsonl"),
+            candidate_inputs_path: parent_file.join("candidate-pack-inputs.jsonl"),
+            alert_stale_after_seconds: 86_400,
             buffer_capacity: 8,
             failure_mode: AegisEngineFailureMode::BestEffort,
             mirror: AegisEngineMirrorConfig::None,
@@ -369,6 +378,9 @@ mod tests {
         let config = AegisEngineConfig {
             enabled: true,
             jsonl_path: parent_file.join("events.jsonl"),
+            alerts_path: parent_file.join("alerts.jsonl"),
+            candidate_inputs_path: parent_file.join("candidate-pack-inputs.jsonl"),
+            alert_stale_after_seconds: 86_400,
             buffer_capacity: 8,
             failure_mode: AegisEngineFailureMode::Require,
             mirror: AegisEngineMirrorConfig::None,
@@ -393,6 +405,9 @@ mod tests {
         let config = AegisEngineConfig {
             enabled: true,
             jsonl_path: tmp.path().join("events.jsonl"),
+            alerts_path: tmp.path().join("alerts.jsonl"),
+            candidate_inputs_path: tmp.path().join("candidate-pack-inputs.jsonl"),
+            alert_stale_after_seconds: 86_400,
             buffer_capacity: 8,
             failure_mode: AegisEngineFailureMode::BestEffort,
             mirror: AegisEngineMirrorConfig::Pipe {

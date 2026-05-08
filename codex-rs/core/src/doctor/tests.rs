@@ -10,6 +10,17 @@ fn human_report_lists_context_pack_status() {
         codex_home: "/tmp/aegis-home".to_string(),
         cwd: "/tmp/project".to_string(),
         config_path: "/tmp/aegis-home/config.toml".to_string(),
+        aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus {
+            enabled: true,
+            alerts_path: "/tmp/aegis-home/aegis-engine/alerts.jsonl".to_string(),
+            candidate_inputs_path: "/tmp/aegis-home/aegis-engine/candidate-pack-inputs.jsonl"
+                .to_string(),
+            malformed_count: 0,
+            stale_count: 0,
+            active_warning_count: 1,
+            active_blocking_count: 0,
+            last_read_error: None,
+        },
         context_packs: vec![ContextPackDiagnostic {
             path: "/tmp/project/pack.toml".to_string(),
             pack_id: Some("project:example".to_string()),
@@ -25,6 +36,8 @@ fn human_report_lists_context_pack_status() {
 
     assert!(output.contains("Aegis Code Doctor"));
     assert!(output.contains("project:example"));
+    assert!(output.contains("Aegis Engine alerts"));
+    assert!(output.contains("active warnings: 1"));
     assert!(output.contains("schema v1"));
     assert!(output.contains("active"));
 }

@@ -5434,6 +5434,15 @@ fn default_aegis_engine_config(codex_home: &AbsolutePathBuf) -> AegisEngineConfi
             .join("aegis-engine")
             .join("events.jsonl")
             .to_path_buf(),
+        alerts_path: codex_home
+            .join("aegis-engine")
+            .join("alerts.jsonl")
+            .to_path_buf(),
+        candidate_inputs_path: codex_home
+            .join("aegis-engine")
+            .join("candidate-pack-inputs.jsonl")
+            .to_path_buf(),
+        alert_stale_after_seconds: 86_400,
         buffer_capacity: 256,
         failure_mode: AegisEngineFailureMode::BestEffort,
         mirror: AegisEngineMirrorConfig::None,
@@ -8378,6 +8387,18 @@ async fn aegis_engine_defaults_to_enabled_jsonl_sink() -> std::io::Result<()> {
         config.aegis_engine.jsonl_path,
         codex_home.path().join("aegis-engine").join("events.jsonl")
     );
+    assert_eq!(
+        config.aegis_engine.alerts_path,
+        codex_home.path().join("aegis-engine").join("alerts.jsonl")
+    );
+    assert_eq!(
+        config.aegis_engine.candidate_inputs_path,
+        codex_home
+            .path()
+            .join("aegis-engine")
+            .join("candidate-pack-inputs.jsonl")
+    );
+    assert_eq!(config.aegis_engine.alert_stale_after_seconds, 86_400);
     assert_eq!(config.aegis_engine.buffer_capacity, 256);
     assert_eq!(
         config.aegis_engine.failure_mode,

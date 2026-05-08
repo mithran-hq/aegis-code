@@ -1,3 +1,4 @@
+use crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus;
 use crate::config::Config;
 use crate::context_packs::ContextPackDiagnostic;
 use serde::Serialize;
@@ -9,6 +10,7 @@ pub struct DoctorReport {
     pub cwd: String,
     pub config_path: String,
     pub context_packs: Vec<ContextPackDiagnostic>,
+    pub aegis_engine_alerts: AegisEngineAlertDoctorStatus,
 }
 
 pub fn build_doctor_report(config: &Config) -> DoctorReport {
@@ -23,6 +25,7 @@ pub fn build_doctor_report(config: &Config) -> DoctorReport {
             .display()
             .to_string(),
         context_packs: config.context_packs.diagnostics().to_vec(),
+        aegis_engine_alerts: crate::aegis_engine_alerts::doctor_status(&config.aegis_engine),
     }
 }
 
@@ -33,6 +36,22 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
     output.push_str(&format!("Config: {}\n", report.config_path));
     output.push_str(&format!("Home: {}\n", report.codex_home));
     output.push_str(&format!("Working directory: {}\n", report.cwd));
+    output.push_str("Aegis Engine alerts:\n");
+    let alerts = &report.aegis_engine_alerts;
+    output.push_str(&format!(
+        "  enabled: {}, alerts: {}, candidate inputs: {}\n",
+        alerts.enabled, alerts.alerts_path, alerts.candidate_inputs_path
+    ));
+    if let Some(err) = &alerts.last_read_error {
+        output.push_str(&format!("  read error: {err}\n"));
+    }
+    output.push_str(&format!(
+        "  active warnings: {}, active blocks: {}, malformed: {}, stale: {}\n",
+        alerts.active_warning_count,
+        alerts.active_blocking_count,
+        alerts.malformed_count,
+        alerts.stale_count
+    ));
     output.push_str("Context packs:\n");
 
     if report.context_packs.is_empty() {

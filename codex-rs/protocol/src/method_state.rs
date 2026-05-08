@@ -30,6 +30,8 @@ pub struct MethodState {
     #[serde(default)]
     pub gates: Vec<MethodGate>,
     #[serde(default)]
+    pub engine_alerts: Vec<MethodEngineAlert>,
+    #[serde(default)]
     pub review_findings: Vec<MethodReviewFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -74,6 +76,13 @@ impl MethodState {
             return false;
         }
         if closure.review_finding_ids.is_empty() || !self.closure_review_findings_valid(closure) {
+            return false;
+        }
+        if self
+            .engine_alerts
+            .iter()
+            .any(|alert| alert.status == MethodEngineAlertStatus::Blocked)
+        {
             return false;
         }
         closure.evidence_ids.iter().all(|id| {
@@ -552,6 +561,75 @@ pub enum MethodGateStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(deny_unknown_fields)]
+pub struct MethodEngineAlert {
+    pub id: String,
+    pub summary: String,
+    pub severity: MethodEngineAlertSeverity,
+    pub action: MethodEngineAlertAction,
+    pub status: MethodEngineAlertStatus,
+    pub source_event: MethodEngineAlertSourceEvent,
+    pub created_at_unix_seconds: i64,
+    pub received_at_unix_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub candidate_input_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodEngineAlertSeverity {
+    Safe,
+    Suspicious,
+    Malicious,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodEngineAlertAction {
+    Observe,
+    Warn,
+    Block,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodEngineAlertStatus {
+    Observed,
+    Warned,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEngineAlertSourceEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub evidence_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub finding_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
 pub struct MethodReviewFinding {
     pub id: String,
     pub summary: String,
@@ -823,6 +901,7 @@ mod tests {
                 evidence_requirement_ids: vec!["requirement:serialization".to_string()],
                 rationale: None,
             }],
+            engine_alerts: Vec::new(),
             review_findings: vec![MethodReviewFinding {
                 id: "finding:none".to_string(),
                 summary: "No blocking review findings".to_string(),
@@ -1044,6 +1123,40 @@ mod tests {
 
         state.review_findings[0].status = MethodReviewFindingStatus::AcceptedRisk;
         assert!(state.is_closure_valid());
+    }
+
+    #[test]
+    fn closed_state_blocks_blocking_engine_alerts() {
+        let mut state = base_state(MethodWorkStatus::Closed);
+        state.closure = Some(MethodClosureState {
+            closed_at_unix_seconds: 1_779_999_200,
+            summary: "Alert remains blocked".to_string(),
+            evidence_ids: vec!["evidence:test".to_string()],
+            review_finding_ids: vec!["finding:none".to_string()],
+            closed_by: Some("codex".to_string()),
+        });
+        state.engine_alerts.push(MethodEngineAlert {
+            id: "alert:malicious".to_string(),
+            summary: "Malicious alert".to_string(),
+            severity: MethodEngineAlertSeverity::Malicious,
+            action: MethodEngineAlertAction::Block,
+            status: MethodEngineAlertStatus::Blocked,
+            source_event: MethodEngineAlertSourceEvent {
+                event_id: Some("aegis-code:tool_call:call-1".to_string()),
+                category: Some("tool_call".to_string()),
+                session_id: Some("session-1".to_string()),
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                call_id: Some("call-1".to_string()),
+                evidence_id: None,
+                finding_id: None,
+            },
+            created_at_unix_seconds: 1_779_999_100,
+            received_at_unix_seconds: 1_779_999_101,
+            candidate_input_id: Some("candidate-input:alert:malicious".to_string()),
+        });
+
+        assert!(!state.is_closure_valid());
     }
 
     #[test]

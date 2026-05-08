@@ -3844,6 +3844,9 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             config.analytics_enabled,
         ),
         aegis_engine_sink: crate::aegis_engine_sink::AegisEngineSink::disabled(),
+        aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertIngestor::start(
+            &config.aegis_engine,
+        ),
         hooks: arc_swap::ArcSwap::from_pointee(Hooks::new(HooksConfig {
             legacy_notify_argv: config.notify.clone(),
             ..HooksConfig::default()
@@ -5554,6 +5557,9 @@ where
             config.analytics_enabled,
         ),
         aegis_engine_sink: crate::aegis_engine_sink::AegisEngineSink::disabled(),
+        aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertIngestor::start(
+            &config.aegis_engine,
+        ),
         hooks: arc_swap::ArcSwap::from_pointee(Hooks::new(HooksConfig {
             legacy_notify_argv: config.notify.clone(),
             ..HooksConfig::default()

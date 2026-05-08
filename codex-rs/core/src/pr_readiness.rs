@@ -739,6 +739,7 @@ mod tests {
                 receipt: Some(receipt(commit, false, 0)),
             }],
             gates: Vec::new(),
+            engine_alerts: Vec::new(),
             review_findings: vec![MethodReviewFinding {
                 id: "finding:review".to_string(),
                 summary: "Review completed with no blocking findings".to_string(),

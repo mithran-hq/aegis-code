@@ -635,6 +635,7 @@ mod tests {
             evidence_requirements: Vec::new(),
             evidence: Vec::new(),
             gates: Vec::new(),
+            engine_alerts: Vec::new(),
             review_findings: Vec::new(),
             closure: None,
             resume_context: MethodResumeContext {

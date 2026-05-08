@@ -95,6 +95,12 @@ pub struct AegisEngineToml {
     pub enabled: Option<bool>,
     /// JSONL audit log path. Defaults to `$AEGIS_HOME/aegis-engine/events.jsonl`.
     pub jsonl_path: Option<AbsolutePathBuf>,
+    /// Aegis Engine alert JSONL path. Defaults to `$AEGIS_HOME/aegis-engine/alerts.jsonl`.
+    pub alerts_path: Option<AbsolutePathBuf>,
+    /// Candidate-pack input JSONL path. Defaults to `$AEGIS_HOME/aegis-engine/candidate-pack-inputs.jsonl`.
+    pub candidate_inputs_path: Option<AbsolutePathBuf>,
+    /// Alert age threshold in seconds. Defaults to 86400.
+    pub alert_stale_after_seconds: Option<i64>,
     /// Bounded async queue capacity. Defaults to 256.
     pub buffer_capacity: Option<usize>,
     /// Failure behavior for protected workflows. Defaults to best-effort.

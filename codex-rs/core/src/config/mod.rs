@@ -933,6 +933,9 @@ pub enum AegisEngineMirrorConfig {
 pub struct AegisEngineConfig {
     pub enabled: bool,
     pub jsonl_path: PathBuf,
+    pub alerts_path: PathBuf,
+    pub candidate_inputs_path: PathBuf,
+    pub alert_stale_after_seconds: i64,
     pub buffer_capacity: usize,
     pub failure_mode: AegisEngineFailureMode,
     pub mirror: AegisEngineMirrorConfig,
@@ -2129,6 +2132,7 @@ fn resolve_aegis_agent_runtime_config(
 }
 
 const DEFAULT_AEGIS_ENGINE_BUFFER_CAPACITY: usize = 256;
+const DEFAULT_AEGIS_ENGINE_ALERT_STALE_AFTER_SECONDS: i64 = 24 * 60 * 60;
 
 fn resolve_aegis_engine_config(
     config_toml: &ConfigToml,
@@ -2136,7 +2140,8 @@ fn resolve_aegis_engine_config(
     requirements: Option<&Sourced<codex_config::AegisEngineRequirementsToml>>,
     startup_warnings: &mut Vec<String>,
 ) -> std::io::Result<AegisEngineConfig> {
-    let default_path = codex_home.join("aegis-engine").join("events.jsonl");
+    let default_dir = codex_home.join("aegis-engine");
+    let default_path = default_dir.join("events.jsonl");
     let configured = config_toml.aegis_engine.as_ref();
     let required_by_policy = requirements
         .and_then(|requirements| requirements.required)
@@ -2190,11 +2195,35 @@ fn resolve_aegis_engine_config(
         .and_then(|config| config.jsonl_path.as_ref())
         .map(AbsolutePathBuf::to_path_buf)
         .unwrap_or_else(|| default_path.to_path_buf());
+    let alerts_path = configured
+        .and_then(|config| config.alerts_path.as_ref())
+        .map(AbsolutePathBuf::to_path_buf)
+        .unwrap_or_else(|| default_dir.join("alerts.jsonl").to_path_buf());
+    let candidate_inputs_path = configured
+        .and_then(|config| config.candidate_inputs_path.as_ref())
+        .map(AbsolutePathBuf::to_path_buf)
+        .unwrap_or_else(|| {
+            default_dir
+                .join("candidate-pack-inputs.jsonl")
+                .to_path_buf()
+        });
+    let alert_stale_after_seconds = configured
+        .and_then(|config| config.alert_stale_after_seconds)
+        .unwrap_or(DEFAULT_AEGIS_ENGINE_ALERT_STALE_AFTER_SECONDS);
+    if alert_stale_after_seconds <= 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "aegis_engine.alert_stale_after_seconds must be positive",
+        ));
+    }
     let mirror = resolve_aegis_engine_mirror(configured)?;
 
     Ok(AegisEngineConfig {
         enabled,
         jsonl_path,
+        alerts_path,
+        candidate_inputs_path,
+        alert_stale_after_seconds,
         buffer_capacity,
         failure_mode,
         mirror,

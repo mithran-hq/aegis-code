@@ -268,6 +268,43 @@ mirror = "pipe"
 pipe_path = "/tmp/aegis-engine-events.pipe"
 ```
 
+## Alert Ingestion
+
+Aegis Code also reads Aegis Engine headless alert JSONL from
+`$AEGIS_HOME/aegis-engine/alerts.jsonl`. Alert ingestion is checkpoint-based:
+sessions scan the file at startup and after Aegis runtime events are emitted.
+Malformed alerts produce diagnostics instead of crashing the session, stale
+alerts are ignored, and correlated suspicious or malicious alerts are surfaced
+through the normal CLI/TUI warning channel.
+
+Alert ingestion never mutates active prompt layers. Safe alerts are recorded as
+observed, suspicious alerts mark method state as warned, and malicious alerts
+mark method state as blocked. Candidate-pack input records for suspicious or
+malicious alerts with guidance are appended to
+`$AEGIS_HOME/aegis-engine/candidate-pack-inputs.jsonl`; a later learned-pack
+compiler may consume those records, but they are not active context packs.
+
+```jsonc
+{
+  "schema_version": 1,
+  "alert_id": "alert-1",
+  "severity": "suspicious",
+  "action": "warn",
+  "summary": "Tool call looks inconsistent with the linked task scope.",
+  "created_at_unix_seconds": 1778246400,
+  "source_event": {
+    "event_id": "aegis-code:tool_call:call-1",
+    "category": "tool_call",
+    "turn_id": "turn-1",
+    "call_id": "call-1"
+  },
+  "candidate_guidance": {
+    "guidance": "Require issue-scope evidence before similar repository mutations.",
+    "falsifiers": ["The command is read-only or explicitly requested by the task issue."]
+  }
+}
+```
+
 ## Redaction Rules
 
 Event context should contain identifiers, statuses, summaries, redacted argv,
