@@ -1,3 +1,4 @@
+use super::ANTHROPIC_DEFAULT_MAX_TOKENS;
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
@@ -7,6 +8,10 @@ use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::build_anthropic_messages;
+use super::build_anthropic_tools;
+use codex_api::AnthropicContentBlock;
+use codex_api::AnthropicImageSource;
 use codex_api::ApiError;
 use codex_api::ResponseEvent;
 use codex_app_server_protocol::AuthMode;
@@ -15,7 +20,10 @@ use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
+use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::FunctionCallOutputBody;
+use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::InternalSessionSource;
@@ -28,6 +36,10 @@ use codex_rollout_trace::RawTraceEventPayload;
 use codex_rollout_trace::RolloutTrace;
 use codex_rollout_trace::TraceWriter;
 use codex_rollout_trace::replay_bundle;
+use codex_tools::AdditionalProperties;
+use codex_tools::JsonSchema;
+use codex_tools::ResponsesApiTool;
+use codex_tools::ToolSpec;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -256,6 +268,142 @@ fn build_subagent_headers_sets_internal_memory_consolidation_label() {
         .get(X_OPENAI_SUBAGENT_HEADER)
         .and_then(|value| value.to_str().ok());
     assert_eq!(value, Some("memory_consolidation"));
+}
+
+#[test]
+fn build_anthropic_messages_preserves_text_images_and_tool_results() {
+    let prompt = super::Prompt {
+        input: vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![
+                    ContentItem::InputText {
+                        text: "look".to_string(),
+                    },
+                    ContentItem::InputImage {
+                        image_url: "data:image/png;base64,AAA".to_string(),
+                        detail: None,
+                    },
+                ],
+                phase: None,
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "toolu_1".to_string(),
+                output: FunctionCallOutputPayload {
+                    success: Some(true),
+                    body: FunctionCallOutputBody::Text("done".to_string()),
+                },
+            },
+        ],
+        base_instructions: BaseInstructions {
+            text: "system".to_string(),
+        },
+        ..Default::default()
+    };
+
+    let messages = build_anthropic_messages(&prompt).expect("messages should convert");
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].role, "user");
+    assert_eq!(
+        messages[0].content,
+        vec![
+            AnthropicContentBlock::Text {
+                text: "look".to_string(),
+                cache_control: None,
+            },
+            AnthropicContentBlock::Image {
+                source: AnthropicImageSource::Base64 {
+                    media_type: "image/png".to_string(),
+                    data: "AAA".to_string(),
+                },
+            },
+            AnthropicContentBlock::ToolResult {
+                tool_use_id: "toolu_1".to_string(),
+                content: "done".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn build_anthropic_tools_adds_final_cache_breakpoint() {
+    let tools = build_anthropic_tools(&[ToolSpec::Function(ResponsesApiTool {
+        name: "lookup".to_string(),
+        description: "Lookup a value".to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            BTreeMap::from([(
+                "q".to_string(),
+                JsonSchema::string(Some("query".to_string())),
+            )]),
+            Some(vec!["q".to_string()]),
+            Some(AdditionalProperties::Boolean(false)),
+        ),
+        output_schema: None,
+    })])
+    .expect("tools should convert");
+
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "lookup");
+    assert_eq!(
+        tools[0]
+            .cache_control
+            .as_ref()
+            .map(|control| control.r#type.as_str()),
+        Some("ephemeral")
+    );
+}
+
+#[test]
+fn build_anthropic_request_rejects_output_schema() {
+    let client = test_model_client(SessionSource::Cli);
+    let prompt = super::Prompt {
+        output_schema: Some(json!({"type": "object"})),
+        ..Default::default()
+    };
+
+    let err = client
+        .build_anthropic_messages_request(&prompt, &test_model_info())
+        .expect_err("output schema should be rejected");
+
+    assert!(err.to_string().contains("output schemas"));
+}
+
+#[test]
+fn build_anthropic_request_uses_expected_defaults() {
+    let client = test_model_client(SessionSource::Cli);
+    let prompt = super::Prompt {
+        input: vec![ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "hello".to_string(),
+            }],
+            phase: None,
+        }],
+        base_instructions: BaseInstructions {
+            text: "system".to_string(),
+        },
+        ..Default::default()
+    };
+
+    let request = client
+        .build_anthropic_messages_request(&prompt, &test_model_info())
+        .expect("request should build");
+
+    assert_eq!(request.model, "gpt-test");
+    assert_eq!(request.max_tokens, ANTHROPIC_DEFAULT_MAX_TOKENS);
+    assert_eq!(
+        request.system[0],
+        AnthropicContentBlock::Text {
+            text: "system".to_string(),
+            cache_control: Some(codex_api::AnthropicCacheControl::ephemeral()),
+        }
+    );
+    assert!(request.stream);
 }
 
 #[test]

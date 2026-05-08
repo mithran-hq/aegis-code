@@ -189,6 +189,77 @@ pub struct ResponsesApiRequest {
     pub client_metadata: Option<HashMap<String, String>>,
 }
 
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct AnthropicMessagesRequest {
+    pub model: String,
+    pub max_tokens: i64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub system: Vec<AnthropicContentBlock>,
+    pub messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<AnthropicTool>,
+    pub stream: bool,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct AnthropicMessage {
+    pub role: String,
+    pub content: Vec<AnthropicContentBlock>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum AnthropicContentBlock {
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<AnthropicCacheControl>,
+    },
+    Image {
+        source: AnthropicImageSource,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum AnthropicImageSource {
+    Base64 { media_type: String, data: String },
+    Url { url: String },
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct AnthropicCacheControl {
+    pub r#type: String,
+}
+
+impl AnthropicCacheControl {
+    pub fn ephemeral() -> Self {
+        Self {
+            r#type: "ephemeral".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct AnthropicTool {
+    pub name: String,
+    pub description: String,
+    pub input_schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<AnthropicCacheControl>,
+}
+
 impl From<&ResponsesApiRequest> for ResponseCreateWsRequest {
     fn from(request: &ResponsesApiRequest) -> Self {
         Self {

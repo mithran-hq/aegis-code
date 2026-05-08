@@ -27,6 +27,63 @@ fn map_api_error_maps_server_overloaded_from_503_body() {
 }
 
 #[test]
+fn map_api_error_maps_anthropic_invalid_request_body() {
+    let body = serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "invalid_request_error",
+            "message": "model is required"
+        },
+        "request_id": "req_anthropic_body"
+    })
+    .to_string();
+    let err = map_api_error(ApiError::Transport(TransportError::Http {
+        status: http::StatusCode::BAD_REQUEST,
+        url: Some("https://api.anthropic.com/v1/messages".to_string()),
+        headers: None,
+        body: Some(body),
+    }));
+
+    let CodexErr::InvalidRequest(message) = err else {
+        panic!("expected CodexErr::InvalidRequest, got {err:?}");
+    };
+    assert_eq!(message, "model is required");
+}
+
+#[test]
+fn map_api_error_maps_anthropic_request_id_header() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ANTHROPIC_REQUEST_ID_HEADER,
+        http::HeaderValue::from_static("req_anthropic_header"),
+    );
+    let body = serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "authentication_error",
+            "message": "invalid x-api-key"
+        }
+    })
+    .to_string();
+    let err = map_api_error(ApiError::Transport(TransportError::Http {
+        status: http::StatusCode::UNAUTHORIZED,
+        url: Some("https://api.anthropic.com/v1/messages".to_string()),
+        headers: Some(headers),
+        body: Some(body),
+    }));
+
+    let CodexErr::UnexpectedStatus(err) = err else {
+        panic!("expected CodexErr::UnexpectedStatus, got {err:?}");
+    };
+    assert_eq!(err.body, "invalid x-api-key");
+    assert_eq!(err.request_id.as_deref(), Some("req_anthropic_header"));
+    assert_eq!(
+        err.identity_error_code.as_deref(),
+        Some("authentication_error")
+    );
+}
+
+#[test]
 fn map_api_error_maps_cyber_policy_from_400_body() {
     let body = serde_json::json!({
         "error": {

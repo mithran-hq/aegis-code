@@ -281,6 +281,48 @@ fn test_built_in_model_providers_include_amazon_bedrock() {
 }
 
 #[test]
+fn test_create_anthropic_provider() {
+    assert_eq!(
+        ModelProviderInfo::create_anthropic_provider(/*base_url*/ None),
+        ModelProviderInfo {
+            name: "Anthropic".to_string(),
+            base_url: Some("https://api.anthropic.com/v1".to_string()),
+            env_key: Some("ANTHROPIC_API_KEY".to_string()),
+            env_key_instructions: Some(
+                "Set ANTHROPIC_API_KEY to a valid Anthropic API key.".to_string()
+            ),
+            experimental_bearer_token: None,
+            auth: None,
+            aws: None,
+            wire_api: WireApi::AnthropicMessages,
+            query_params: None,
+            http_headers: Some(maplit::hashmap! {
+                "anthropic-version".to_string() => "2023-06-01".to_string(),
+            }),
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        }
+    );
+}
+
+#[test]
+fn test_built_in_model_providers_include_anthropic() {
+    let providers = built_in_model_providers(/*openai_base_url*/ None);
+
+    assert_eq!(
+        providers
+            .get(ANTHROPIC_PROVIDER_ID)
+            .map(ModelProviderInfo::is_anthropic),
+        Some(true)
+    );
+}
+
+#[test]
 fn test_merge_configured_model_providers_adds_custom_provider() {
     let custom_provider = ModelProviderInfo {
         name: "Custom".to_string(),

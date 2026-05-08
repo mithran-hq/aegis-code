@@ -42,6 +42,12 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
             } => {
                 let body_text = body.unwrap_or_default();
 
+                if let Some(mapped) =
+                    map_anthropic_error_response(status, url.clone(), headers.as_ref(), &body_text)
+                {
+                    return mapped;
+                }
+
                 if status == http::StatusCode::SERVICE_UNAVAILABLE
                     && let Ok(value) = serde_json::from_str::<serde_json::Value>(&body_text)
                     && matches!(
@@ -134,6 +140,7 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
 
 const ACTIVE_LIMIT_HEADER: &str = "x-codex-active-limit";
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const ANTHROPIC_REQUEST_ID_HEADER: &str = "request-id";
 const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
 const CF_RAY_HEADER: &str = "cf-ray";
 const X_OPENAI_AUTHORIZATION_ERROR_HEADER: &str = "x-openai-authorization-error";
@@ -187,4 +194,67 @@ struct UsageErrorBody {
     error_type: Option<String>,
     plan_type: Option<PlanType>,
     resets_at: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicErrorResponse {
+    #[serde(rename = "type")]
+    response_type: Option<String>,
+    error: AnthropicErrorBody,
+    request_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicErrorBody {
+    #[serde(rename = "type")]
+    error_type: String,
+    message: String,
+}
+
+fn map_anthropic_error_response(
+    status: http::StatusCode,
+    url: Option<String>,
+    headers: Option<&HeaderMap>,
+    body: &str,
+) -> Option<CodexErr> {
+    let parsed = serde_json::from_str::<AnthropicErrorResponse>(body).ok()?;
+    if parsed.response_type.as_deref() != Some("error") {
+        return None;
+    }
+
+    let request_id = parsed
+        .request_id
+        .or_else(|| extract_header(headers, ANTHROPIC_REQUEST_ID_HEADER))
+        .or_else(|| extract_header(headers, REQUEST_ID_HEADER));
+    let error_type = parsed.error.error_type.as_str();
+    if !matches!(
+        error_type,
+        "invalid_request_error"
+            | "authentication_error"
+            | "permission_error"
+            | "not_found_error"
+            | "request_too_large"
+            | "rate_limit_error"
+            | "api_error"
+            | "overloaded_error"
+            | "timeout_error"
+    ) {
+        return None;
+    }
+
+    Some(match error_type {
+        "invalid_request_error" => CodexErr::InvalidRequest(parsed.error.message),
+        "rate_limit_error" => CodexErr::RetryLimit(RetryLimitReachedError { status, request_id }),
+        "overloaded_error" => CodexErr::ServerOverloaded,
+        "timeout_error" => CodexErr::Timeout,
+        _ => CodexErr::UnexpectedStatus(UnexpectedResponseError {
+            status,
+            body: parsed.error.message,
+            url,
+            cf_ray: extract_header(headers, CF_RAY_HEADER),
+            request_id,
+            identity_authorization_error: None,
+            identity_error_code: Some(parsed.error.error_type),
+        }),
+    })
 }

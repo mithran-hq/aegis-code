@@ -22,6 +22,20 @@ Only valid packs with `promotion.status = "promoted"` contribute
 `guidance.text` to prompt assembly. Candidate, retired, unreadable, invalid, or
 schema-incompatible packs are ignored fail-closed and reported by `aegis doctor`.
 
+## Anthropic provider
+
+Aegis Code can use Anthropic directly through the built-in native
+`anthropic` provider:
+
+```toml
+model_provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+```
+
+Set `ANTHROPIC_API_KEY` in the environment before starting Aegis. See
+[Native Anthropic Provider](anthropic-provider.md) for supported models and
+current limits.
+
 ## Commit attribution
 
 Codex can add a [git trailer](https://git-scm.com/docs/git-interpret-trailers) to

@@ -31,6 +31,14 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use codex_api::AnthropicCacheControl;
+use codex_api::AnthropicContentBlock;
+use codex_api::AnthropicImageSource;
+use codex_api::AnthropicMessage;
+use codex_api::AnthropicMessagesClient as ApiAnthropicMessagesClient;
+use codex_api::AnthropicMessagesOptions as ApiAnthropicMessagesOptions;
+use codex_api::AnthropicMessagesRequest;
+use codex_api::AnthropicTool;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::CompactClient as ApiCompactClient;
@@ -74,6 +82,8 @@ use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use codex_protocol::config_types::Verbosity as VerbosityConfig;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
@@ -128,6 +138,8 @@ use codex_response_debug_context::extract_response_debug_context;
 use codex_response_debug_context::extract_response_debug_context_from_api_error;
 use codex_response_debug_context::telemetry_api_error_message;
 use codex_response_debug_context::telemetry_transport_error_message;
+use codex_tools::ResponsesApiNamespaceTool;
+use codex_tools::ToolSpec;
 
 pub const OPENAI_BETA_HEADER: &str = "OpenAI-Beta";
 pub const X_CODEX_INSTALLATION_ID_HEADER: &str = "x-codex-installation-id";
@@ -141,8 +153,10 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
     "x-responsesapi-include-timing-metrics";
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
+const ANTHROPIC_MESSAGES_ENDPOINT: &str = "/messages";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
+const ANTHROPIC_DEFAULT_MAX_TOKENS: i64 = 16_384;
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
@@ -733,6 +747,37 @@ impl ModelClient {
         Ok(request)
     }
 
+    fn build_anthropic_messages_request(
+        &self,
+        prompt: &Prompt,
+        model_info: &ModelInfo,
+    ) -> Result<AnthropicMessagesRequest> {
+        if prompt.output_schema.is_some() {
+            return Err(CodexErr::InvalidRequest(
+                "Anthropic native provider does not support Responses API output schemas yet"
+                    .to_string(),
+            ));
+        }
+
+        let system = if prompt.base_instructions.text.trim().is_empty() {
+            Vec::new()
+        } else {
+            vec![AnthropicContentBlock::Text {
+                text: prompt.base_instructions.text.clone(),
+                cache_control: Some(AnthropicCacheControl::ephemeral()),
+            }]
+        };
+
+        Ok(AnthropicMessagesRequest {
+            model: model_info.slug.clone(),
+            max_tokens: ANTHROPIC_DEFAULT_MAX_TOKENS,
+            system,
+            messages: build_anthropic_messages(prompt)?,
+            tools: build_anthropic_tools(&prompt.tools)?,
+            stream: true,
+        })
+    }
+
     /// Returns whether the Responses-over-WebSocket transport is active for this session.
     ///
     /// WebSocket use is controlled by provider capability and session-scoped fallback state.
@@ -1279,6 +1324,89 @@ impl ModelClientSession {
         }
     }
 
+    /// Streams a turn via Anthropic's native Messages API.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "model_client.stream_anthropic_messages_api",
+        level = "info",
+        skip_all,
+        fields(
+            model = %model_info.slug,
+            wire_api = %self.client.state.provider.info().wire_api,
+            transport = "anthropic_messages_http",
+            http.method = "POST",
+            api.path = "messages",
+            turn.has_metadata_header = turn_metadata_header.is_some()
+        )
+    )]
+    async fn stream_anthropic_messages_api(
+        &self,
+        prompt: &Prompt,
+        model_info: &ModelInfo,
+        session_telemetry: &SessionTelemetry,
+        turn_metadata_header: Option<&str>,
+        inference_trace: &InferenceTraceContext,
+    ) -> Result<ResponseStream> {
+        let client_setup = self.client.current_client_setup().await?;
+        let transport = ReqwestTransport::new(build_reqwest_client());
+        let request_auth_context = AuthRequestTelemetryContext::new(
+            client_setup.auth.as_ref().map(CodexAuth::auth_mode),
+            client_setup.api_auth.as_ref(),
+            PendingUnauthorizedRetry::default(),
+        );
+        let (request_telemetry, sse_telemetry) = Self::build_streaming_telemetry(
+            session_telemetry,
+            request_auth_context,
+            RequestRouteTelemetry::for_endpoint(ANTHROPIC_MESSAGES_ENDPOINT),
+            self.client.state.auth_env_telemetry.clone(),
+        );
+        let request = self
+            .client
+            .build_anthropic_messages_request(prompt, model_info)?;
+        let inference_trace_attempt = inference_trace.start_attempt();
+        inference_trace_attempt.record_started(&request);
+
+        let mut extra_headers = ApiHeaderMap::new();
+        if let Some(turn_metadata_header) = turn_metadata_header
+            && let Ok(header_value) = HeaderValue::from_str(turn_metadata_header)
+        {
+            extra_headers.insert(X_CODEX_TURN_METADATA_HEADER, header_value);
+        }
+        let client = ApiAnthropicMessagesClient::new(
+            transport,
+            client_setup.api_provider,
+            client_setup.api_auth,
+        )
+        .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+        let stream_result = client
+            .stream_request(
+                request,
+                ApiAnthropicMessagesOptions {
+                    extra_headers,
+                    compression: Compression::None,
+                },
+            )
+            .await;
+
+        match stream_result {
+            Ok(stream) => {
+                let (stream, _) =
+                    map_response_stream(stream, session_telemetry.clone(), inference_trace_attempt);
+                Ok(stream)
+            }
+            Err(err) => {
+                let response_debug_context = extract_response_debug_context_from_api_error(&err);
+                let err = map_api_error(err);
+                inference_trace_attempt.record_failed(
+                    &err,
+                    response_debug_context.request_id.as_deref(),
+                    /*output_items*/ &[],
+                );
+                Err(err)
+            }
+        }
+    }
+
     /// Streams a turn via the Responses API over WebSocket transport.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
@@ -1565,6 +1693,16 @@ impl ModelClientSession {
                 )
                 .await
             }
+            WireApi::AnthropicMessages => {
+                self.stream_anthropic_messages_api(
+                    prompt,
+                    model_info,
+                    session_telemetry,
+                    turn_metadata_header,
+                    inference_trace,
+                )
+                .await
+            }
         }
     }
 
@@ -1685,6 +1823,233 @@ fn map_response_stream(
         session_telemetry,
         inference_trace_attempt,
     )
+}
+
+fn build_anthropic_messages(prompt: &Prompt) -> Result<Vec<AnthropicMessage>> {
+    let mut messages = Vec::new();
+    for item in prompt.get_formatted_input() {
+        match item {
+            ResponseItem::Message { role, content, .. } => {
+                let role = if role == "assistant" {
+                    "assistant".to_string()
+                } else {
+                    "user".to_string()
+                };
+                let content = content
+                    .into_iter()
+                    .map(anthropic_content_from_content_item)
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                push_anthropic_message(&mut messages, role, content);
+            }
+            ResponseItem::FunctionCall {
+                name,
+                namespace,
+                arguments,
+                call_id,
+                ..
+            } => {
+                let input = serde_json::from_str(&arguments).unwrap_or(serde_json::Value::Null);
+                push_anthropic_message(
+                    &mut messages,
+                    "assistant".to_string(),
+                    vec![AnthropicContentBlock::ToolUse {
+                        id: call_id,
+                        name: encode_anthropic_tool_name(namespace.as_deref(), &name),
+                        input,
+                    }],
+                );
+            }
+            ResponseItem::FunctionCallOutput { call_id, output } => {
+                push_anthropic_message(
+                    &mut messages,
+                    "user".to_string(),
+                    vec![AnthropicContentBlock::ToolResult {
+                        tool_use_id: call_id,
+                        content: function_output_to_text(output),
+                    }],
+                );
+            }
+            ResponseItem::CustomToolCall {
+                name,
+                input,
+                call_id,
+                ..
+            } => {
+                push_anthropic_message(
+                    &mut messages,
+                    "assistant".to_string(),
+                    vec![AnthropicContentBlock::ToolUse {
+                        id: call_id,
+                        name,
+                        input: serde_json::Value::String(input),
+                    }],
+                );
+            }
+            ResponseItem::CustomToolCallOutput {
+                call_id, output, ..
+            } => {
+                push_anthropic_message(
+                    &mut messages,
+                    "user".to_string(),
+                    vec![AnthropicContentBlock::ToolResult {
+                        tool_use_id: call_id,
+                        content: function_output_to_text(output),
+                    }],
+                );
+            }
+            _ => {}
+        }
+    }
+
+    if messages.is_empty() {
+        messages.push(AnthropicMessage {
+            role: "user".to_string(),
+            content: vec![AnthropicContentBlock::Text {
+                text: String::new(),
+                cache_control: None,
+            }],
+        });
+    }
+    Ok(messages)
+}
+
+fn anthropic_content_from_content_item(item: ContentItem) -> Result<Option<AnthropicContentBlock>> {
+    match item {
+        ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+            Ok(Some(AnthropicContentBlock::Text {
+                text,
+                cache_control: None,
+            }))
+        }
+        ContentItem::InputImage { image_url, .. } => Ok(Some(AnthropicContentBlock::Image {
+            source: anthropic_image_source(image_url)?,
+        })),
+    }
+}
+
+fn anthropic_image_source(image_url: String) -> Result<AnthropicImageSource> {
+    if let Some((metadata, data)) = image_url.split_once(',') {
+        let metadata = metadata.strip_prefix("data:").unwrap_or(metadata);
+        if metadata.to_ascii_lowercase().ends_with(";base64") {
+            let media_type = metadata
+                .rsplit_once(';')
+                .map(|(media_type, _)| media_type)
+                .filter(|media_type| !media_type.trim().is_empty())
+                .ok_or_else(|| {
+                    CodexErr::InvalidRequest(
+                        "Anthropic image input is missing a media type".to_string(),
+                    )
+                })?;
+            return Ok(AnthropicImageSource::Base64 {
+                media_type: media_type.to_string(),
+                data: data.to_string(),
+            });
+        }
+    }
+
+    Ok(AnthropicImageSource::Url { url: image_url })
+}
+
+fn push_anthropic_message(
+    messages: &mut Vec<AnthropicMessage>,
+    role: String,
+    mut content: Vec<AnthropicContentBlock>,
+) {
+    if content.is_empty() {
+        return;
+    }
+    if let Some(last) = messages.last_mut()
+        && last.role == role
+    {
+        last.content.append(&mut content);
+        return;
+    }
+    messages.push(AnthropicMessage { role, content });
+}
+
+fn function_output_to_text(output: codex_protocol::models::FunctionCallOutputPayload) -> String {
+    match output.body {
+        FunctionCallOutputBody::Text(text) => text,
+        FunctionCallOutputBody::ContentItems(items) => items
+            .into_iter()
+            .filter_map(|item| match item {
+                codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                    Some(text)
+                }
+                codex_protocol::models::FunctionCallOutputContentItem::InputImage { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+fn build_anthropic_tools(tools: &[ToolSpec]) -> Result<Vec<AnthropicTool>> {
+    let mut anthropic_tools = Vec::new();
+    for tool in tools {
+        match tool {
+            ToolSpec::Function(tool) => {
+                anthropic_tools.push(AnthropicTool {
+                    name: encode_anthropic_tool_name(None, &tool.name),
+                    description: tool.description.clone(),
+                    input_schema: serde_json::to_value(&tool.parameters).map_err(|err| {
+                        CodexErr::Fatal(format!("failed to encode Anthropic tool schema: {err}"))
+                    })?,
+                    cache_control: None,
+                });
+            }
+            ToolSpec::Namespace(namespace) => {
+                for tool in &namespace.tools {
+                    let ResponsesApiNamespaceTool::Function(tool) = tool;
+                    anthropic_tools.push(AnthropicTool {
+                        name: encode_anthropic_tool_name(Some(&namespace.name), &tool.name),
+                        description: format!("{} {}", namespace.description, tool.description),
+                        input_schema: serde_json::to_value(&tool.parameters).map_err(|err| {
+                            CodexErr::Fatal(format!(
+                                "failed to encode Anthropic namespace tool schema: {err}"
+                            ))
+                        })?,
+                        cache_control: None,
+                    });
+                }
+            }
+            ToolSpec::Freeform(tool) => {
+                anthropic_tools.push(AnthropicTool {
+                    name: encode_anthropic_tool_name(None, &tool.name),
+                    description: tool.description.clone(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "input": {
+                                "type": "string",
+                                "description": tool.format.definition.clone(),
+                            }
+                        },
+                        "required": ["input"],
+                        "additionalProperties": false,
+                    }),
+                    cache_control: None,
+                });
+            }
+            ToolSpec::ToolSearch { .. }
+            | ToolSpec::LocalShell {}
+            | ToolSpec::ImageGeneration { .. }
+            | ToolSpec::WebSearch { .. } => {}
+        }
+    }
+    if let Some(tool) = anthropic_tools.last_mut() {
+        tool.cache_control = Some(AnthropicCacheControl::ephemeral());
+    }
+    Ok(anthropic_tools)
+}
+
+fn encode_anthropic_tool_name(namespace: Option<&str>, name: &str) -> String {
+    match namespace {
+        Some(namespace) => format!("ns__{namespace}__{name}"),
+        None => name.to_string(),
+    }
 }
 
 fn map_response_events<S>(
