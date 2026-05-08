@@ -6,6 +6,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 pub const METHOD_STATE_SCHEMA_VERSION: u32 = 1;
+pub const METHOD_EVIDENCE_RECEIPT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(deny_unknown_fields)]
@@ -50,10 +51,11 @@ impl MethodState {
             .filter(|requirement| {
                 !self.evidence.iter().any(|evidence| {
                     let satisfies_requirement = evidence.requirement_ids.contains(&requirement.id);
+                    let has_receipt = evidence.receipt.is_some();
                     let cited_by_closure = closure_evidence_ids
                         .map(|ids| ids.iter().any(|id| id == &evidence.id))
                         .unwrap_or(true);
-                    satisfies_requirement && cited_by_closure
+                    satisfies_requirement && has_receipt && cited_by_closure
                 })
             })
             .cloned()
@@ -74,7 +76,7 @@ impl MethodState {
         closure.evidence_ids.iter().all(|id| {
             self.evidence
                 .iter()
-                .any(|evidence| evidence.id.as_str() == id.as_str())
+                .any(|evidence| evidence.id.as_str() == id.as_str() && evidence.receipt.is_some())
         })
     }
 
@@ -258,10 +260,15 @@ pub struct MethodEvidence {
     pub requirement_ids: Vec<String>,
     #[serde(default)]
     pub claim_ids: Vec<String>,
+    #[serde(default)]
+    pub falsifier_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub source: Option<String>,
     pub captured_at_unix_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub receipt: Option<MethodEvidenceReceipt>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -274,6 +281,209 @@ pub enum MethodEvidenceKind {
     GitHub,
     Human,
     Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEvidenceReceipt {
+    pub schema_version: u32,
+    pub command: Vec<String>,
+    pub cwd: String,
+    pub captured_at_unix_seconds: i64,
+    pub git_state: MethodEvidenceGitState,
+    pub exit_status: MethodEvidenceExitStatus,
+    pub output_summary: String,
+    #[serde(default)]
+    pub artifacts: Vec<MethodEvidenceArtifactRef>,
+    pub session: MethodEvidenceSessionMetadata,
+    pub redaction_status: MethodEvidenceRedactionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEvidenceGitState {
+    pub status: MethodEvidenceGitStateStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repository: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub dirty: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodEvidenceGitStateStatus {
+    Captured,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEvidenceExitStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub timed_out: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEvidenceArtifactRef {
+    pub kind: MethodEvidenceArtifactKind,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub digest: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodEvidenceArtifactKind {
+    Path,
+    Uri,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEvidenceSessionMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodEvidenceRedactionStatus {
+    NotNeeded,
+    Redacted,
+    Unknown,
+}
+
+pub fn redact_method_evidence_command(
+    command: &[String],
+) -> (Vec<String>, MethodEvidenceRedactionStatus) {
+    let mut redacted = false;
+    let mut redact_next = false;
+    let command = command
+        .iter()
+        .map(|arg| {
+            if redact_next {
+                redact_next = false;
+                redacted = true;
+                return "<redacted>".to_string();
+            }
+
+            if !is_sensitive_evidence_token(arg) {
+                return arg.clone();
+            }
+
+            redacted = true;
+            if let Some((name, _)) = arg.split_once('=') {
+                format!("{name}=<redacted>")
+            } else if arg.starts_with('-') {
+                redact_next = true;
+                arg.clone()
+            } else {
+                redact_next = true;
+                "<redacted>".to_string()
+            }
+        })
+        .collect();
+
+    (command, redaction_status(redacted))
+}
+
+pub fn redact_method_evidence_output(output: &str) -> (String, MethodEvidenceRedactionStatus) {
+    let mut redacted = false;
+    let mut redact_next = false;
+    let output = output
+        .split_whitespace()
+        .map(|token| {
+            if redact_next {
+                let lower = token.to_ascii_lowercase();
+                redact_next = lower.contains("authorization") || lower.contains("bearer");
+                redacted = true;
+                return "<redacted>";
+            }
+
+            if is_sensitive_evidence_token(token) {
+                redacted = true;
+                let lower = token.to_ascii_lowercase();
+                if lower.contains("authorization")
+                    || lower.contains("bearer")
+                    || lower.contains("token")
+                    || lower.contains("password")
+                    || lower.contains("secret")
+                    || lower.contains("api-key")
+                    || lower.contains("apikey")
+                    || lower == "-k"
+                    || lower == "--key"
+                {
+                    redact_next = true;
+                }
+                "<redacted>"
+            } else {
+                token
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    (output, redaction_status(redacted))
+}
+
+pub fn merge_method_evidence_redaction_status(
+    left: MethodEvidenceRedactionStatus,
+    right: MethodEvidenceRedactionStatus,
+) -> MethodEvidenceRedactionStatus {
+    match (left, right) {
+        (MethodEvidenceRedactionStatus::Redacted, _)
+        | (_, MethodEvidenceRedactionStatus::Redacted) => MethodEvidenceRedactionStatus::Redacted,
+        (MethodEvidenceRedactionStatus::Unknown, _)
+        | (_, MethodEvidenceRedactionStatus::Unknown) => MethodEvidenceRedactionStatus::Unknown,
+        _ => MethodEvidenceRedactionStatus::NotNeeded,
+    }
+}
+
+fn redaction_status(redacted: bool) -> MethodEvidenceRedactionStatus {
+    if redacted {
+        MethodEvidenceRedactionStatus::Redacted
+    } else {
+        MethodEvidenceRedactionStatus::NotNeeded
+    }
+}
+
+fn is_sensitive_evidence_token(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("secret")
+        || lower.contains("authorization")
+        || lower.contains("bearer")
+        || lower.contains("api-key")
+        || lower.contains("apikey")
+        || lower == "-k"
+        || lower == "--key"
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -484,6 +694,42 @@ mod tests {
         }
     }
 
+    fn receipt() -> MethodEvidenceReceipt {
+        MethodEvidenceReceipt {
+            schema_version: METHOD_EVIDENCE_RECEIPT_SCHEMA_VERSION,
+            command: vec![
+                "cargo".to_string(),
+                "test".to_string(),
+                "-p".to_string(),
+                "codex-protocol".to_string(),
+                "method_state".to_string(),
+            ],
+            cwd: "/repo".to_string(),
+            captured_at_unix_seconds: 1_779_999_000,
+            git_state: MethodEvidenceGitState {
+                status: MethodEvidenceGitStateStatus::Captured,
+                repository: Some("mithran-hq/aegis-code".to_string()),
+                branch: Some("master".to_string()),
+                commit: Some("abc123".to_string()),
+                dirty: Some(false),
+                unavailable_reason: None,
+            },
+            exit_status: MethodEvidenceExitStatus {
+                exit_code: Some(0),
+                timed_out: false,
+            },
+            output_summary: "test result: ok".to_string(),
+            artifacts: Vec::new(),
+            session: MethodEvidenceSessionMetadata {
+                session_id: Some("session-1".to_string()),
+                thread_id: Some("thread-1".to_string()),
+                provider: Some("test-provider".to_string()),
+                model: Some("test-model".to_string()),
+            },
+            redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
+        }
+    }
+
     fn base_state(status: MethodWorkStatus) -> MethodState {
         MethodState {
             schema_version: METHOD_STATE_SCHEMA_VERSION,
@@ -520,8 +766,10 @@ mod tests {
                 kind: MethodEvidenceKind::Test,
                 requirement_ids: vec!["requirement:serialization".to_string()],
                 claim_ids: vec!["claim:model-exists".to_string()],
+                falsifier_ids: vec!["falsifier:not-reusable".to_string()],
                 source: Some("local".to_string()),
                 captured_at_unix_seconds: 1_779_999_000,
+                receipt: Some(receipt()),
             }],
             gates: vec![MethodGate {
                 id: "gate:local-ci".to_string(),
@@ -629,6 +877,25 @@ mod tests {
     }
 
     #[test]
+    fn closed_state_with_free_form_evidence_only_is_invalid() {
+        let mut state = base_state(MethodWorkStatus::Closed);
+        state.evidence[0].receipt = None;
+        state.closure = Some(MethodClosureState {
+            closed_at_unix_seconds: 1_779_999_200,
+            summary: "Free-form evidence is not enough".to_string(),
+            evidence_ids: vec!["evidence:test".to_string()],
+            review_finding_ids: vec!["finding:none".to_string()],
+            closed_by: Some("codex".to_string()),
+        });
+
+        assert_eq!(
+            state.closure_evidence_gaps()[0].id,
+            "requirement:serialization"
+        );
+        assert!(!state.is_closure_valid());
+    }
+
+    #[test]
     fn closed_state_requires_closure_referenced_evidence() {
         let mut state = base_state(MethodWorkStatus::Closed);
         state.evidence.push(MethodEvidence {
@@ -637,8 +904,10 @@ mod tests {
             kind: MethodEvidenceKind::Command,
             requirement_ids: Vec::new(),
             claim_ids: Vec::new(),
+            falsifier_ids: Vec::new(),
             source: Some("local".to_string()),
             captured_at_unix_seconds: 1_779_999_050,
+            receipt: Some(receipt()),
         });
         state.closure = Some(MethodClosureState {
             closed_at_unix_seconds: 1_779_999_200,
@@ -653,6 +922,140 @@ mod tests {
             "requirement:serialization"
         );
         assert!(!state.is_closure_valid());
+    }
+
+    #[test]
+    fn command_receipt_success_round_trips() {
+        let receipt = receipt();
+        assert_eq!(
+            receipt.schema_version,
+            METHOD_EVIDENCE_RECEIPT_SCHEMA_VERSION
+        );
+        assert_eq!(receipt.exit_status.exit_code, Some(0));
+        assert!(!receipt.exit_status.timed_out);
+        assert_eq!(receipt.output_summary, "test result: ok");
+
+        let json = serde_json::to_string(&receipt).expect("serialize receipt");
+        let round_tripped: MethodEvidenceReceipt =
+            serde_json::from_str(&json).expect("deserialize receipt");
+        assert_eq!(round_tripped, receipt);
+    }
+
+    #[test]
+    fn command_receipt_failure_round_trips() {
+        let mut receipt = receipt();
+        receipt.exit_status.exit_code = Some(101);
+        receipt.output_summary = "test failed".to_string();
+
+        let json = serde_json::to_string(&receipt).expect("serialize receipt");
+        let round_tripped: MethodEvidenceReceipt =
+            serde_json::from_str(&json).expect("deserialize receipt");
+        assert_eq!(round_tripped.exit_status.exit_code, Some(101));
+        assert_eq!(round_tripped.output_summary, "test failed");
+    }
+
+    #[test]
+    fn receipt_redaction_removes_obvious_secrets() {
+        let (command, command_status) = redact_method_evidence_command(&[
+            "gh".to_string(),
+            "api".to_string(),
+            "--token=abc123".to_string(),
+            "--password".to_string(),
+            "pw".to_string(),
+        ]);
+        let (output, output_status) =
+            redact_method_evidence_output("Authorization: bearer abc123 test passed");
+
+        assert_eq!(
+            command,
+            vec![
+                "gh".to_string(),
+                "api".to_string(),
+                "--token=<redacted>".to_string(),
+                "--password".to_string(),
+                "<redacted>".to_string(),
+            ]
+        );
+        assert_eq!(command_status, MethodEvidenceRedactionStatus::Redacted);
+        assert_eq!(
+            output,
+            "<redacted> <redacted> <redacted> test passed".to_string()
+        );
+        assert_eq!(
+            merge_method_evidence_redaction_status(command_status, output_status),
+            MethodEvidenceRedactionStatus::Redacted
+        );
+    }
+
+    #[test]
+    fn receipt_missing_git_state_round_trips() {
+        let mut receipt = receipt();
+        receipt.git_state = MethodEvidenceGitState {
+            status: MethodEvidenceGitStateStatus::Unavailable,
+            repository: None,
+            branch: None,
+            commit: None,
+            dirty: None,
+            unavailable_reason: Some("not a git repository".to_string()),
+        };
+
+        let json = serde_json::to_string(&receipt).expect("serialize receipt");
+        let round_tripped: MethodEvidenceReceipt =
+            serde_json::from_str(&json).expect("deserialize receipt");
+        assert_eq!(
+            round_tripped.git_state.status,
+            MethodEvidenceGitStateStatus::Unavailable
+        );
+        assert_eq!(
+            round_tripped.git_state.unavailable_reason.as_deref(),
+            Some("not a git repository")
+        );
+    }
+
+    #[test]
+    fn receipt_artifact_references_round_trip() {
+        let mut receipt = receipt();
+        receipt.artifacts = vec![
+            MethodEvidenceArtifactRef {
+                kind: MethodEvidenceArtifactKind::Path,
+                value: "target/test.log".to_string(),
+                digest: Some("sha256:abc".to_string()),
+            },
+            MethodEvidenceArtifactRef {
+                kind: MethodEvidenceArtifactKind::Uri,
+                value: "https://github.com/mithran-hq/aegis-code/actions/runs/1".to_string(),
+                digest: None,
+            },
+        ];
+
+        let json = serde_json::to_string(&receipt).expect("serialize receipt");
+        let round_tripped: MethodEvidenceReceipt =
+            serde_json::from_str(&json).expect("deserialize receipt");
+        assert_eq!(round_tripped.artifacts, receipt.artifacts);
+    }
+
+    #[test]
+    fn evidence_can_link_to_falsifiers() {
+        let state = base_state(MethodWorkStatus::Incomplete);
+        assert_eq!(
+            state.evidence[0].falsifier_ids,
+            vec!["falsifier:not-reusable".to_string()]
+        );
+    }
+
+    #[test]
+    fn older_evidence_without_receipt_fields_deserializes() {
+        let mut value = serde_json::to_value(base_state(MethodWorkStatus::Incomplete))
+            .expect("serialize method state");
+        let evidence = value["evidence"][0]
+            .as_object_mut()
+            .expect("evidence is object");
+        evidence.remove("falsifier_ids");
+        evidence.remove("receipt");
+
+        let state: MethodState = serde_json::from_value(value).expect("deserialize method state");
+        assert!(state.evidence[0].falsifier_ids.is_empty());
+        assert!(state.evidence[0].receipt.is_none());
     }
 
     #[test]

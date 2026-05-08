@@ -77,11 +77,18 @@ mod tests {
     use super::*;
     use crate::runtime::test_support::test_thread_metadata;
     use crate::runtime::test_support::unique_temp_dir;
+    use codex_protocol::method_state::METHOD_EVIDENCE_RECEIPT_SCHEMA_VERSION;
     use codex_protocol::method_state::MethodAssumption;
     use codex_protocol::method_state::MethodClaim;
     use codex_protocol::method_state::MethodEvidence;
+    use codex_protocol::method_state::MethodEvidenceExitStatus;
+    use codex_protocol::method_state::MethodEvidenceGitState;
+    use codex_protocol::method_state::MethodEvidenceGitStateStatus;
     use codex_protocol::method_state::MethodEvidenceKind;
+    use codex_protocol::method_state::MethodEvidenceReceipt;
+    use codex_protocol::method_state::MethodEvidenceRedactionStatus;
     use codex_protocol::method_state::MethodEvidenceRequirement;
+    use codex_protocol::method_state::MethodEvidenceSessionMetadata;
     use codex_protocol::method_state::MethodFalsifier;
     use codex_protocol::method_state::MethodFalsifierStatus;
     use codex_protocol::method_state::MethodGate;
@@ -146,8 +153,36 @@ mod tests {
                 kind: MethodEvidenceKind::Test,
                 requirement_ids: vec!["requirement:round-trip".to_string()],
                 claim_ids: vec!["claim:persisted".to_string()],
+                falsifier_ids: vec!["falsifier:missing-storage".to_string()],
                 source: Some("codex-state tests".to_string()),
                 captured_at_unix_seconds: 1_779_999_000,
+                receipt: Some(MethodEvidenceReceipt {
+                    schema_version: METHOD_EVIDENCE_RECEIPT_SCHEMA_VERSION,
+                    command: vec!["cargo".to_string(), "test".to_string()],
+                    cwd: "/repo".to_string(),
+                    captured_at_unix_seconds: 1_779_999_000,
+                    git_state: MethodEvidenceGitState {
+                        status: MethodEvidenceGitStateStatus::Captured,
+                        repository: Some("mithran-hq/aegis-code".to_string()),
+                        branch: Some("master".to_string()),
+                        commit: Some("abc123".to_string()),
+                        dirty: Some(false),
+                        unavailable_reason: None,
+                    },
+                    exit_status: MethodEvidenceExitStatus {
+                        exit_code: Some(0),
+                        timed_out: false,
+                    },
+                    output_summary: "state runtime returned method payload".to_string(),
+                    artifacts: Vec::new(),
+                    session: MethodEvidenceSessionMetadata {
+                        session_id: Some("session-1".to_string()),
+                        thread_id: Some("thread-1".to_string()),
+                        provider: Some("test-provider".to_string()),
+                        model: None,
+                    },
+                    redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
+                }),
             }],
             gates: vec![MethodGate {
                 id: "gate:local-ci".to_string(),
