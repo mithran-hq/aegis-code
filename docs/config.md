@@ -36,6 +36,15 @@ Set `ANTHROPIC_API_KEY` in the environment before starting Aegis. See
 [Native Anthropic Provider](anthropic-provider.md) for supported models and
 current limits.
 
+## OpenAI-compatible providers
+
+Aegis Code preserves OpenAI Responses-compatible provider support for the
+built-in `openai` provider and custom providers configured with
+`wire_api = "responses"`. See
+[OpenAI-Compatible Providers](openai-compatible-provider.md) for built-in
+OpenAI auth, custom provider TOML, env vars, streaming behavior, and
+`aegis doctor` diagnostics.
+
 ## Commit attribution
 
 Codex can add a [git trailer](https://git-scm.com/docs/git-interpret-trailers) to

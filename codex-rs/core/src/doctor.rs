@@ -1,6 +1,7 @@
 use crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus;
 use crate::config::Config;
 use crate::context_packs::ContextPackDiagnostic;
+use codex_protocol::openai_models::ModelPreset;
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -9,8 +10,22 @@ pub struct DoctorReport {
     pub codex_home: String,
     pub cwd: String,
     pub config_path: String,
+    pub provider: ProviderDiagnostic,
     pub context_packs: Vec<ContextPackDiagnostic>,
     pub aegis_engine_alerts: AegisEngineAlertDoctorStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderDiagnostic {
+    pub id: String,
+    pub name: String,
+    pub model: String,
+    pub wire_api: String,
+    pub base_url: Option<String>,
+    pub requires_openai_auth: bool,
+    pub supports_websockets: bool,
+    pub env_key: Option<String>,
+    pub env_key_present: Option<bool>,
 }
 
 pub fn build_doctor_report(config: &Config) -> DoctorReport {
@@ -24,9 +39,51 @@ pub fn build_doctor_report(config: &Config) -> DoctorReport {
             .as_path()
             .display()
             .to_string(),
+        provider: build_provider_diagnostic(config),
         context_packs: config.context_packs.diagnostics().to_vec(),
         aegis_engine_alerts: crate::aegis_engine_alerts::doctor_status(&config.aegis_engine),
     }
+}
+
+fn build_provider_diagnostic(config: &Config) -> ProviderDiagnostic {
+    let env_key_present = config
+        .model_provider
+        .env_key
+        .as_ref()
+        .map(|env_key| std::env::var(env_key).is_ok_and(|value| !value.trim().is_empty()));
+
+    ProviderDiagnostic {
+        id: config.model_provider_id.clone(),
+        name: config.model_provider.name.clone(),
+        model: config.model.clone().unwrap_or_else(default_model_name),
+        wire_api: config.model_provider.wire_api.to_string(),
+        base_url: config.model_provider.base_url.clone(),
+        requires_openai_auth: config.model_provider.requires_openai_auth,
+        supports_websockets: config.model_provider.supports_websockets,
+        env_key: config.model_provider.env_key.clone(),
+        env_key_present,
+    }
+}
+
+fn default_model_name() -> String {
+    let Ok(catalog) = codex_models_manager::bundled_models_response() else {
+        return "default".to_string();
+    };
+
+    let mut models = catalog.models;
+    models.sort_by(|a, b| a.priority.cmp(&b.priority));
+    let mut presets = models
+        .into_iter()
+        .map(ModelPreset::from)
+        .collect::<Vec<_>>();
+    presets = ModelPreset::filter_by_auth(presets, /*chatgpt_mode*/ false);
+    ModelPreset::mark_default_by_picker_visibility(&mut presets);
+    presets
+        .iter()
+        .find(|model| model.is_default)
+        .or_else(|| presets.first())
+        .map(|model| model.model.clone())
+        .unwrap_or_else(|| "default".to_string())
 }
 
 pub fn format_doctor_report_human(report: &DoctorReport) -> String {
@@ -36,6 +93,33 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
     output.push_str(&format!("Config: {}\n", report.config_path));
     output.push_str(&format!("Home: {}\n", report.codex_home));
     output.push_str(&format!("Working directory: {}\n", report.cwd));
+    output.push_str("Provider:\n");
+    output.push_str(&format!(
+        "  selected: {} ({})\n",
+        report.provider.id, report.provider.name
+    ));
+    output.push_str(&format!("  model: {}\n", report.provider.model));
+    output.push_str(&format!("  wire API: {}\n", report.provider.wire_api));
+    output.push_str(&format!(
+        "  base URL: {}\n",
+        report.provider.base_url.as_deref().unwrap_or("default")
+    ));
+    output.push_str(&format!(
+        "  OpenAI auth: {}, websockets: {}\n",
+        report.provider.requires_openai_auth, report.provider.supports_websockets
+    ));
+    match (
+        report.provider.env_key.as_deref(),
+        report.provider.env_key_present,
+    ) {
+        (Some(env_key), Some(true)) => {
+            output.push_str(&format!("  env key: {env_key} (set)\n"));
+        }
+        (Some(env_key), Some(false)) => {
+            output.push_str(&format!("  env key: {env_key} (missing)\n"));
+        }
+        _ => output.push_str("  env key: none\n"),
+    }
     output.push_str("Aegis Engine alerts:\n");
     let alerts = &report.aegis_engine_alerts;
     output.push_str(&format!(

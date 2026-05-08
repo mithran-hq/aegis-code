@@ -1060,6 +1060,124 @@ async fn chatgpt_auth_sends_correct_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn openai_compatible_provider_preserves_responses_request_shape() {
+    skip_if_no_network!();
+
+    let server = MockServer::start().await;
+    let resp_mock = mount_sse_once(
+        &server,
+        sse(vec![ev_response_created("resp1"), ev_completed("resp1")]),
+    )
+    .await;
+
+    let provider = ModelProviderInfo {
+        name: "OpenAI compatible".to_string(),
+        base_url: Some(format!("{}/v1", server.uri())),
+        env_key: Some(EXISTING_ENV_VAR_WITH_NON_EMPTY_VALUE.to_string()),
+        env_key_instructions: None,
+        experimental_bearer_token: None,
+        auth: None,
+        aws: None,
+        wire_api: WireApi::Responses,
+        query_params: None,
+        http_headers: Some(std::collections::HashMap::from([(
+            "X-Aegis-Provider-Test".to_string(),
+            "openai-compatible".to_string(),
+        )])),
+        env_http_headers: None,
+        request_max_retries: Some(0),
+        stream_max_retries: Some(0),
+        stream_idle_timeout_ms: Some(5_000),
+        websocket_connect_timeout_ms: Some(15_000),
+        requires_openai_auth: false,
+        supports_websockets: false,
+    };
+
+    let mut builder = test_codex()
+        .with_auth(create_dummy_codex_auth())
+        .with_config(move |config| {
+            config.model_provider_id = "openai-compatible".to_string();
+            config.model_provider = provider;
+            config.base_instructions =
+                Some("OpenAI-compatible provider regression instructions".to_string());
+        });
+    let codex = builder
+        .build(&server)
+        .await
+        .expect("create new conversation")
+        .codex;
+
+    codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "hello from openai-compatible provider".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "ok": { "type": "boolean" }
+                },
+                "required": ["ok"],
+                "additionalProperties": false
+            })),
+            responsesapi_client_metadata: None,
+        })
+        .await
+        .unwrap();
+
+    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+
+    let request = resp_mock.single_request();
+    let request_body = request.body_json();
+    let expected_authorization = format!(
+        "Bearer {}",
+        std::env::var(EXISTING_ENV_VAR_WITH_NON_EMPTY_VALUE).unwrap()
+    );
+
+    assert_eq!(request.path(), "/v1/responses");
+    assert_eq!(
+        request.header("authorization").as_deref(),
+        Some(expected_authorization.as_str())
+    );
+    assert_eq!(
+        request.header("accept").as_deref(),
+        Some("text/event-stream")
+    );
+    assert_eq!(
+        request.header("x-aegis-provider-test").as_deref(),
+        Some("openai-compatible")
+    );
+    assert!(request.header("x-client-request-id").is_some());
+    assert_eq!(
+        request_body["instructions"].as_str(),
+        Some("OpenAI-compatible provider regression instructions")
+    );
+    assert!(request.body_contains_text("hello from openai-compatible provider"));
+    assert!(request.body_contains_text("<current_task_facts>"));
+    assert_eq!(request_body["stream"].as_bool(), Some(true));
+    assert_eq!(request_body["store"].as_bool(), Some(false));
+    assert_eq!(request_body["tool_choice"].as_str(), Some("auto"));
+    assert!(request_body["parallel_tool_calls"].is_boolean());
+    assert!(
+        request_body["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty()),
+        "OpenAI-compatible request should keep model-visible tools"
+    );
+    assert!(
+        request_body["text"]["format"]["schema"].is_object(),
+        "OpenAI-compatible request should keep Responses output schema controls"
+    );
+    assert!(
+        request_body["client_metadata"]["x-codex-installation-id"]
+            .as_str()
+            .is_some()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
     skip_if_no_network!();
 
@@ -2867,6 +2985,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         .and(path("/openai/responses"))
         .and(query_param("api-version", "2025-04-01-preview"))
         .and(header_regex("Custom-Header", "Value"))
+        .and(body_string_contains("\"store\":true"))
         .and(header(
             "Authorization",
             format!(
@@ -2881,7 +3000,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         .await;
 
     let provider = ModelProviderInfo {
-        name: "custom".to_string(),
+        name: "Azure".to_string(),
         base_url: Some(format!("{}/openai", server.uri())),
         // Reuse the existing environment variable to avoid using unsafe code
         env_key: Some(EXISTING_ENV_VAR_WITH_NON_EMPTY_VALUE.to_string()),

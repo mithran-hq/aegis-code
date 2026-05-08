@@ -140,6 +140,24 @@ fn test_supports_remote_compaction_for_openai() {
 }
 
 #[test]
+fn test_openai_provider_defaults_are_responses_compatible() {
+    let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+
+    assert_eq!(provider.name, "OpenAI");
+    assert_eq!(provider.wire_api, WireApi::Responses);
+    assert!(provider.requires_openai_auth);
+    assert!(provider.supports_websockets);
+    assert_eq!(provider.env_key, None);
+    assert_eq!(
+        provider.env_http_headers,
+        Some(maplit::hashmap! {
+            "OpenAI-Organization".to_string() => "OPENAI_ORGANIZATION".to_string(),
+            "OpenAI-Project".to_string() => "OPENAI_PROJECT".to_string(),
+        })
+    );
+}
+
+#[test]
 fn test_supports_remote_compaction_for_azure_name() {
     let provider = ModelProviderInfo {
         name: "Azure".into(),
