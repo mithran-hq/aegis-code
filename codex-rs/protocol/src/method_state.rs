@@ -29,6 +29,9 @@ pub struct MethodStatusSummary {
     pub kind: MethodStatusKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub sandbox_posture: Option<MethodSandboxPosture>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub linked_issue: Option<MethodLinkedIssue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -62,6 +65,7 @@ impl MethodStatusSummary {
     pub fn missing(context_packs: MethodContextPackStatusSummary) -> Self {
         Self {
             kind: MethodStatusKind::Missing,
+            sandbox_posture: None,
             linked_issue: None,
             work_status: None,
             resume_validity: None,
@@ -113,6 +117,7 @@ impl MethodStatusSummary {
 
         Self {
             kind: MethodStatusKind::Loaded,
+            sandbox_posture: state.resume_context.sandbox_posture.clone(),
             linked_issue: state.linked_issue.clone(),
             work_status: Some(state.status),
             resume_validity: Some(resume_validity.status),
@@ -174,6 +179,41 @@ impl MethodStatusSummary {
             updated_at_unix_seconds: Some(state.provenance.updated_at_unix_seconds),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodSandboxPosture {
+    pub mode: String,
+    pub permission_profile: String,
+    pub enforcement: String,
+    pub network: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub policy: Option<MethodSandboxPolicySummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodSandboxPolicySummary {
+    pub status: MethodSandboxPolicyStatus,
+    #[serde(default)]
+    pub allowed_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodSandboxPolicyStatus {
+    Unrestricted,
+    Allowed,
+    Blocked,
+    Missing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -338,6 +378,23 @@ impl MethodState {
             (Some(_), Some(_)) => {}
             (None, _) => reasons.push(MethodResumeValidityReason::MissingPersistedSchemaVersion),
             (_, None) => reasons.push(MethodResumeValidityReason::MissingCurrentSchemaVersion),
+        }
+
+        match (
+            &self.resume_context.sandbox_posture,
+            &current_context.sandbox_posture,
+        ) {
+            (Some(persisted), Some(current)) if persisted != current => {
+                reasons.push(MethodResumeValidityReason::SandboxPostureChanged);
+            }
+            (Some(_), Some(_)) => {}
+            (None, Some(_)) => {
+                reasons.push(MethodResumeValidityReason::MissingPersistedSandboxPosture)
+            }
+            (Some(_), None) => {
+                reasons.push(MethodResumeValidityReason::MissingCurrentSandboxPosture)
+            }
+            (None, None) => {}
         }
 
         let status = if reasons
@@ -588,6 +645,9 @@ pub struct MethodEvidenceSessionMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sandbox_posture: Option<MethodSandboxPosture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -862,6 +922,9 @@ pub struct MethodResumeContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sandbox_posture: Option<MethodSandboxPosture>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -897,6 +960,9 @@ pub enum MethodResumeValidityReason {
     MissingPersistedSchemaVersion,
     MissingCurrentSchemaVersion,
     SchemaVersionMismatch,
+    MissingPersistedSandboxPosture,
+    MissingCurrentSandboxPosture,
+    SandboxPostureChanged,
 }
 
 impl MethodResumeValidityReason {
@@ -916,6 +982,7 @@ impl MethodResumeValidityReason {
                 | Self::MissingPersistedSchemaVersion
                 | Self::MissingCurrentSchemaVersion
                 | Self::SchemaVersionMismatch
+                | Self::MissingCurrentSandboxPosture
         )
     }
 }
@@ -979,6 +1046,7 @@ mod tests {
             commit: Some("abc123".to_string()),
             linked_issue: Some(MethodIssueRef::from(&issue())),
             schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+            sandbox_posture: None,
         }
     }
 
@@ -1013,6 +1081,7 @@ mod tests {
                 thread_id: Some("thread-1".to_string()),
                 provider: Some("test-provider".to_string()),
                 model: Some("test-model".to_string()),
+                sandbox_posture: None,
             },
             redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
         }

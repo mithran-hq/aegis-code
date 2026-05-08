@@ -118,7 +118,17 @@ The v1 envelope has these fields:
       "exit_status": { "exit_code": 0, "timed_out": false },
       "output_summary": "test result: ok",
       "artifacts": [],
-      "session": { "thread_id": "thread-1", "provider": "openai", "model": "gpt-5.2" },
+      "session": {
+        "thread_id": "thread-1",
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "sandbox_posture": {
+          "mode": "workspace-write",
+          "permission_profile": "workspace-write [workdir]",
+          "enforcement": "managed",
+          "network": "restricted"
+        }
+      },
       "redaction_status": "not_needed"
     }
   },
@@ -177,7 +187,40 @@ The v1 envelope has these fields:
   "tags": ["category:sandbox", "sandbox:posture"],
   "context": {
     "sandbox_mode": "workspace-write",
-    "permission_profile": "on-request"
+    "permission_profile": "workspace-write [workdir]",
+    "enforcement": "managed",
+    "network": "restricted",
+    "policy": {
+      "status": "allowed",
+      "allowed_modes": ["read-only", "workspace-write"],
+      "source": "/etc/aegis/requirements.toml"
+    }
+  },
+  "redactions": []
+}
+```
+
+Sandbox posture changes use the same category with `sandbox:change` tags and
+include `previous` and `current` posture objects. Sandbox policy violations use
+`sandbox:policy_violation`, severity `high`, and context that includes the
+active mode, requested mode when an override was attempted, allowed modes, and
+policy source.
+
+```json
+{
+  "source": "aegis-code",
+  "summary": "Sandbox policy violation",
+  "category": "sandbox",
+  "severity_hint": "high",
+  "tags": ["category:sandbox", "sandbox:policy_violation", "tool:exec_command"],
+  "context": {
+    "call_id": "call-5",
+    "turn_id": "turn-1",
+    "tool_name": "exec_command",
+    "active_mode": "workspace-write",
+    "requested_mode": "danger-full-access",
+    "allowed_modes": ["read-only", "workspace-write"],
+    "reason": "Aegis sandbox policy blocked protected workflow: sandbox override requested `danger-full-access` but policy allows only [read-only, workspace-write]."
   },
   "redactions": []
 }

@@ -1356,7 +1356,15 @@ impl Session {
         &self,
         updates: SessionSettingsUpdate,
     ) -> ConstraintResult<()> {
-        let (previous_cwd, permission_profile_changed, next_cwd, codex_home, session_source) = {
+        let (
+            previous_cwd,
+            previous_sandbox_posture,
+            permission_profile_changed,
+            next_cwd,
+            next_sandbox_posture,
+            codex_home,
+            session_source,
+        ) = {
             let mut state = self.state.lock().await;
             let updated = match state.session_configuration.apply(&updates) {
                 Ok(updated) => updated,
@@ -1368,17 +1376,34 @@ impl Session {
 
             let previous_cwd = state.session_configuration.cwd.clone();
             let previous_permission_profile = state.session_configuration.permission_profile();
+            let previous_sandbox_posture =
+                crate::sandbox_policy::sandbox_posture_for_permission_profile(
+                    &previous_permission_profile,
+                    previous_cwd.as_path(),
+                    &state
+                        .session_configuration
+                        .original_config_do_not_use
+                        .config_layer_stack,
+                );
             let updated_permission_profile = updated.permission_profile();
             let permission_profile_changed =
                 previous_permission_profile != updated_permission_profile;
             let next_cwd = updated.cwd.clone();
+            let next_sandbox_posture =
+                crate::sandbox_policy::sandbox_posture_for_permission_profile(
+                    &updated_permission_profile,
+                    next_cwd.as_path(),
+                    &updated.original_config_do_not_use.config_layer_stack,
+                );
             let codex_home = updated.codex_home.clone();
             let session_source = updated.session_source.clone();
             state.session_configuration = updated;
             (
                 previous_cwd,
+                previous_sandbox_posture,
                 permission_profile_changed,
                 next_cwd,
+                next_sandbox_posture,
                 codex_home,
                 session_source,
             )
@@ -1392,6 +1417,15 @@ impl Session {
         );
         if permission_profile_changed {
             self.refresh_managed_network_proxy_for_current_permission_profile()
+                .await;
+            let _ = self
+                .record_aegis_engine_event(
+                    "sandbox_policy",
+                    crate::aegis_safety_event::sandbox_posture_changed_event(
+                        &previous_sandbox_posture,
+                        &next_sandbox_posture,
+                    ),
+                )
                 .await;
         }
 

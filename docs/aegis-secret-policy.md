@@ -88,6 +88,11 @@ evidence expectations. It is not the full persisted method state.
 Brokers should treat it as policy input, not as a guarantee that Aegis Secret
 itself enforced that sandbox.
 
+Aegis Code's local sandbox policy uses `allowed_sandbox_modes` as an allow-list,
+not as an ordered minimum. Brokers may reason about the reported posture, but
+must not infer that `external-sandbox` provides a specific capability set unless
+that guarantee is supplied by the external sandbox provider.
+
 ## Response
 
 ```json

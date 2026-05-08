@@ -729,6 +729,7 @@ fn handle_policy_explain(
             method_state_available: false,
             method_state_valid: false,
             linked_issue_available: false,
+            sandbox_policy: None,
         });
     let spec = tool_preflight::ToolPreflightSpec {
         subject,
@@ -1122,6 +1123,7 @@ fn tool_preflight_context_from_method_state(
         method_state_available: true,
         method_state_valid: state.is_closure_valid(),
         linked_issue_available: state.linked_issue.is_some(),
+        sandbox_policy: None,
     }
 }
 
@@ -1242,6 +1244,7 @@ mod tests {
                 thread_id: None,
                 provider: None,
                 model: None,
+                sandbox_posture: None,
             },
             redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
         };

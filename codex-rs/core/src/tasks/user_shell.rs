@@ -16,6 +16,7 @@ use crate::exec::ExecCapturePolicy;
 use crate::exec::StdoutStream;
 use crate::exec::execute_exec_request;
 use crate::exec_env::create_env;
+use crate::sandbox_policy::sandbox_posture_for_permission_profile;
 use crate::sandboxing::ExecRequest;
 use crate::session::turn_context::TurnContext;
 use crate::state::TaskKind;
@@ -171,6 +172,11 @@ pub(crate) async fn execute_user_shell_command(
                 parsed_cmd: parsed_cmd.clone(),
                 source: ExecCommandSource::UserShell,
                 interaction_input: None,
+                sandbox_posture: Some(sandbox_posture_for_permission_profile(
+                    &turn_context.permission_profile,
+                    turn_context.cwd.as_path(),
+                    &turn_context.config.config_layer_stack,
+                )),
             }),
         )
         .await;
@@ -244,6 +250,11 @@ pub(crate) async fn execute_user_shell_command(
                         parsed_cmd: parsed_cmd.clone(),
                         source: ExecCommandSource::UserShell,
                         interaction_input: None,
+                        sandbox_posture: Some(sandbox_posture_for_permission_profile(
+                            &turn_context.permission_profile,
+                            turn_context.cwd.as_path(),
+                            &turn_context.config.config_layer_stack,
+                        )),
                         stdout: String::new(),
                         stderr: aborted_message.clone(),
                         aggregated_output: aborted_message.clone(),
@@ -269,6 +280,11 @@ pub(crate) async fn execute_user_shell_command(
                         parsed_cmd: parsed_cmd.clone(),
                         source: ExecCommandSource::UserShell,
                         interaction_input: None,
+                        sandbox_posture: Some(sandbox_posture_for_permission_profile(
+                            &turn_context.permission_profile,
+                            turn_context.cwd.as_path(),
+                            &turn_context.config.config_layer_stack,
+                        )),
                         stdout: output.stdout.text.clone(),
                         stderr: output.stderr.text.clone(),
                         aggregated_output: output.aggregated_output.text.clone(),
@@ -314,6 +330,11 @@ pub(crate) async fn execute_user_shell_command(
                         parsed_cmd,
                         source: ExecCommandSource::UserShell,
                         interaction_input: None,
+                        sandbox_posture: Some(sandbox_posture_for_permission_profile(
+                            &turn_context.permission_profile,
+                            turn_context.cwd.as_path(),
+                            &turn_context.config.config_layer_stack,
+                        )),
                         stdout: exec_output.stdout.text.clone(),
                         stderr: exec_output.stderr.text.clone(),
                         aggregated_output: exec_output.aggregated_output.text.clone(),

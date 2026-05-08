@@ -183,6 +183,7 @@ mod tests {
                         thread_id: Some("thread-1".to_string()),
                         provider: Some("test-provider".to_string()),
                         model: None,
+                        sandbox_posture: None,
                     },
                     redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
                 }),
@@ -211,6 +212,7 @@ mod tests {
                 commit: Some("abc123".to_string()),
                 linked_issue: Some(MethodIssueRef::from(&issue)),
                 schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+                sandbox_posture: None,
             },
             provenance: MethodProvenance {
                 created_at_unix_seconds: 1_779_998_000,

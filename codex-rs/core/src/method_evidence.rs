@@ -17,6 +17,7 @@ use codex_protocol::method_state::MethodEvidenceReceipt;
 use codex_protocol::method_state::MethodEvidenceRedactionStatus;
 use codex_protocol::method_state::MethodEvidenceRequirement;
 use codex_protocol::method_state::MethodEvidenceSessionMetadata;
+use codex_protocol::method_state::MethodSandboxPosture;
 use codex_protocol::method_state::merge_method_evidence_redaction_status;
 use codex_protocol::method_state::redact_method_evidence_command;
 use codex_protocol::method_state::redact_method_evidence_output;
@@ -87,6 +88,7 @@ pub(crate) struct EvidenceSessionSnapshot {
     pub(crate) thread_id: Option<String>,
     pub(crate) provider: Option<String>,
     pub(crate) model: Option<String>,
+    pub(crate) sandbox_posture: Option<MethodSandboxPosture>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -338,6 +340,7 @@ async fn build_receipt(
                 thread_id: session.thread_id,
                 provider: session.provider,
                 model: session.model,
+                sandbox_posture: session.sandbox_posture,
             },
             redaction_status,
         },
@@ -565,6 +568,7 @@ mod tests {
                 thread_id: Some("thread-1".to_string()),
                 provider: Some("test-provider".to_string()),
                 model: Some("test-model".to_string()),
+                sandbox_posture: None,
             },
         )
         .await

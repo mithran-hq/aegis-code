@@ -1,5 +1,8 @@
 use crate::aegis_secret::SensitiveCommandAnalysis;
 use crate::aegis_secret::analyze_sensitive_command;
+pub use crate::sandbox_policy::SandboxPolicyContext;
+use crate::sandbox_policy::SandboxPolicyViolation;
+use crate::sandbox_policy::evaluate_sandbox_policy;
 use crate::state::MethodStatePersistenceStatus;
 use codex_protocol::aegis_secret_policy::AegisSecretRiskCategory;
 use codex_protocol::method_state::MethodResumeValidityStatus;
@@ -29,19 +32,21 @@ pub struct ToolPreflightSpec {
     pub sandbox_bypass_requested: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ToolPreflightDecision {
     pub verdict: AegisPreflightVerdict,
     pub risk_category: Option<AegisSecretRiskCategory>,
     pub reason: String,
     pub required_evidence_ids: Vec<String>,
+    pub(crate) sandbox_policy_violation: Option<SandboxPolicyViolation>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ToolPreflightContext {
     pub method_state_available: bool,
     pub method_state_valid: bool,
     pub linked_issue_available: bool,
+    pub sandbox_policy: Option<SandboxPolicyContext>,
 }
 
 impl ToolPreflightContext {
@@ -57,6 +62,7 @@ impl ToolPreflightContext {
                     method_state_available: true,
                     method_state_valid,
                     linked_issue_available: state.linked_issue.is_some(),
+                    sandbox_policy: None,
                 }
             }
             MethodStatePersistenceStatus::Missing
@@ -64,6 +70,7 @@ impl ToolPreflightContext {
                 method_state_available: false,
                 method_state_valid: false,
                 linked_issue_available: false,
+                sandbox_policy: None,
             },
         }
     }
@@ -74,6 +81,7 @@ impl ToolPreflightContext {
             method_state_available: true,
             method_state_valid: true,
             linked_issue_available: true,
+            sandbox_policy: None,
         }
     }
 
@@ -190,6 +198,11 @@ fn evaluate_command(
     context: &ToolPreflightContext,
 ) -> ToolPreflightDecision {
     if let Some(action) = classify_command(command) {
+        if action.is_protected()
+            && let Some(violation) = sandbox_policy_violation(context, sandbox_bypass_requested)
+        {
+            return block_sandbox_policy_violation(violation, action.risk_category);
+        }
         if action.needs_task_scope && !context.has_task_scope() {
             return block_missing_context(context, action.description, action.risk_category);
         }
@@ -212,6 +225,10 @@ fn evaluate_command(
         );
     }
 
+    if sandbox_bypass_requested && let Some(violation) = sandbox_policy_violation(context, true) {
+        return block_sandbox_policy_violation(violation, Some(AegisSecretRiskCategory::Other));
+    }
+
     allow(None, "No preflight gate matched")
 }
 
@@ -230,6 +247,7 @@ fn evaluate_filesystem(
             risk_category: Some(AegisSecretRiskCategory::DestructiveAction),
             reason: "Aegis preflight blocked filesystem write: target path is outside the current task workspace. Required evidence: evidence:task-scope.".to_string(),
             required_evidence_ids: vec!["evidence:task-scope".to_string()],
+            sandbox_policy_violation: None,
         };
     }
 
@@ -260,6 +278,21 @@ struct CommandAction {
     needs_task_scope: bool,
     requires_confirmation: bool,
     high_risk: bool,
+}
+
+impl CommandAction {
+    fn is_protected(&self) -> bool {
+        self.high_risk || self.needs_task_scope || self.requires_confirmation
+    }
+}
+
+fn sandbox_policy_violation(
+    context: &ToolPreflightContext,
+    sandbox_bypass_requested: bool,
+) -> Option<SandboxPolicyViolation> {
+    context.sandbox_policy.as_ref().and_then(|sandbox_policy| {
+        evaluate_sandbox_policy(sandbox_policy, sandbox_bypass_requested)
+    })
 }
 
 fn classify_command(command: &[String]) -> Option<CommandAction> {
@@ -413,6 +446,20 @@ fn block_missing_context(
         risk_category,
         reason: context.missing_context_reason(action),
         required_evidence_ids: vec!["evidence:task-scope".to_string()],
+        sandbox_policy_violation: None,
+    }
+}
+
+fn block_sandbox_policy_violation(
+    violation: SandboxPolicyViolation,
+    risk_category: Option<AegisSecretRiskCategory>,
+) -> ToolPreflightDecision {
+    ToolPreflightDecision {
+        verdict: AegisPreflightVerdict::Block,
+        risk_category,
+        reason: violation.reason.clone(),
+        required_evidence_ids: vec!["evidence:sandbox-policy".to_string()],
+        sandbox_policy_violation: Some(violation),
     }
 }
 
@@ -425,6 +472,7 @@ fn require_confirmation(
         risk_category: Some(risk_category),
         reason: format!("Aegis preflight requires confirmation for {action}."),
         required_evidence_ids: vec!["evidence:user-confirmation".to_string()],
+        sandbox_policy_violation: None,
     }
 }
 
@@ -434,6 +482,7 @@ fn allow(risk_category: Option<AegisSecretRiskCategory>, reason: &str) -> ToolPr
         risk_category,
         reason: reason.to_string(),
         required_evidence_ids: Vec::new(),
+        sandbox_policy_violation: None,
     }
 }
 
@@ -447,6 +496,7 @@ fn command_basename(command: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_config::SandboxModeRequirement;
 
     fn command(command: &[&str], sandbox_bypass_requested: bool) -> ToolPreflightSpec {
         ToolPreflightSpec {
@@ -463,6 +513,21 @@ mod tests {
             method_state_available: false,
             method_state_valid: false,
             linked_issue_available: false,
+            sandbox_policy: None,
+        }
+    }
+
+    fn sandbox_context(
+        active_mode: Option<SandboxModeRequirement>,
+        allowed_modes: Vec<SandboxModeRequirement>,
+    ) -> ToolPreflightContext {
+        ToolPreflightContext {
+            sandbox_policy: Some(SandboxPolicyContext {
+                active_mode,
+                allowed_modes,
+                source: None,
+            }),
+            ..ToolPreflightContext::valid_with_issue()
         }
     }
 
@@ -575,6 +640,81 @@ mod tests {
 
         assert_eq!(decision.verdict, AegisPreflightVerdict::Block);
         assert!(decision.reason.contains("sandbox bypass request"));
+    }
+
+    #[test]
+    fn protected_command_with_allowed_sandbox_posture_is_allowed() {
+        let decision = evaluate_preflight(
+            &command(&["gh", "pr", "merge", "123"], false),
+            &sandbox_context(
+                Some(SandboxModeRequirement::WorkspaceWrite),
+                vec![
+                    SandboxModeRequirement::ReadOnly,
+                    SandboxModeRequirement::WorkspaceWrite,
+                ],
+            ),
+            &AbsolutePathBuf::try_from("/repo").unwrap(),
+        );
+
+        assert_eq!(decision.verdict, AegisPreflightVerdict::Allow);
+    }
+
+    #[test]
+    fn protected_command_with_blocked_sandbox_posture_is_blocked() {
+        let decision = evaluate_preflight(
+            &command(&["gh", "pr", "merge", "123"], false),
+            &sandbox_context(
+                Some(SandboxModeRequirement::DangerFullAccess),
+                vec![
+                    SandboxModeRequirement::ReadOnly,
+                    SandboxModeRequirement::WorkspaceWrite,
+                ],
+            ),
+            &AbsolutePathBuf::try_from("/repo").unwrap(),
+        );
+
+        assert_eq!(decision.verdict, AegisPreflightVerdict::Block);
+        assert_eq!(
+            decision.required_evidence_ids,
+            vec!["evidence:sandbox-policy".to_string()]
+        );
+        assert!(decision.sandbox_policy_violation.is_some());
+    }
+
+    #[test]
+    fn sandbox_override_is_blocked_when_policy_excludes_full_access() {
+        let decision = evaluate_preflight(
+            &command(&["cargo", "test"], true),
+            &sandbox_context(
+                Some(SandboxModeRequirement::WorkspaceWrite),
+                vec![
+                    SandboxModeRequirement::ReadOnly,
+                    SandboxModeRequirement::WorkspaceWrite,
+                ],
+            ),
+            &AbsolutePathBuf::try_from("/repo").unwrap(),
+        );
+
+        assert_eq!(decision.verdict, AegisPreflightVerdict::Block);
+        assert!(decision.reason.contains("sandbox override"));
+    }
+
+    #[test]
+    fn missing_sandbox_posture_blocks_protected_command() {
+        let decision = evaluate_preflight(
+            &command(&["gh", "pr", "merge", "123"], false),
+            &sandbox_context(
+                None,
+                vec![
+                    SandboxModeRequirement::ReadOnly,
+                    SandboxModeRequirement::WorkspaceWrite,
+                ],
+            ),
+            &AbsolutePathBuf::try_from("/repo").unwrap(),
+        );
+
+        assert_eq!(decision.verdict, AegisPreflightVerdict::Block);
+        assert!(decision.reason.contains("sandbox posture is missing"));
     }
 
     #[test]

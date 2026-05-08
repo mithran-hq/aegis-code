@@ -31,6 +31,7 @@ use crate::items::TurnItem;
 use crate::mcp::CallToolResult;
 use crate::mcp::RequestId;
 use crate::memory_citation::MemoryCitation;
+use crate::method_state::MethodSandboxPosture;
 use crate::method_state::MethodStatusSummary;
 use crate::models::ActivePermissionProfile;
 use crate::models::BaseInstructions;
@@ -3075,6 +3076,10 @@ pub struct ExecCommandBeginEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub interaction_input: Option<String>,
+    /// Effective sandbox posture for the command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sandbox_posture: Option<MethodSandboxPosture>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -3133,6 +3138,10 @@ pub struct ExecCommandEndEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub interaction_input: Option<String>,
+    /// Effective sandbox posture for the command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sandbox_posture: Option<MethodSandboxPosture>,
 
     /// Captured stdout
     pub stdout: String,

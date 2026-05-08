@@ -865,6 +865,7 @@ impl HistoryCell for StatusHistoryCell {
         }
         if self.method_status.is_some() {
             push_label(&mut labels, &mut seen, "Aegis method");
+            push_label(&mut labels, &mut seen, "Sandbox");
             push_label(&mut labels, &mut seen, "Issue");
             push_label(&mut labels, &mut seen, "Resume");
             push_label(&mut labels, &mut seen, "Context packs");
@@ -945,6 +946,17 @@ impl HistoryCell for StatusHistoryCell {
                 "Aegis method",
                 vec![Span::from(method_status_label(method_status))],
             ));
+            if let Some(posture) = method_status.sandbox_posture.as_ref() {
+                let policy = posture
+                    .policy
+                    .as_ref()
+                    .map(|policy| format!("{:?}", policy.status).to_ascii_lowercase())
+                    .unwrap_or_else(|| "unknown".to_string());
+                lines.push(formatter.line(
+                    "Sandbox",
+                    vec![Span::from(format!("{} ({policy})", posture.mode))],
+                ));
+            }
             if let Some(issue) = method_issue_label(method_status) {
                 lines.push(formatter.line("Issue", vec![Span::from(issue)]));
             }

@@ -763,6 +763,7 @@ mod tests {
                 commit: Some(commit.to_string()),
                 linked_issue: None,
                 schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+                sandbox_posture: None,
             },
             provenance: MethodProvenance {
                 source: MethodProvenanceSource::Agent,
@@ -798,6 +799,7 @@ mod tests {
                 thread_id: Some("thread".to_string()),
                 provider: Some("test".to_string()),
                 model: Some("test".to_string()),
+                sandbox_posture: None,
             },
             redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
         }

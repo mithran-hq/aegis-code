@@ -7,6 +7,7 @@ retry with an escalated sandbox strategy on denial (no re‑approval thanks to
 caching).
 */
 use crate::aegis_safety_event::preflight_decision_event;
+use crate::aegis_safety_event::sandbox_policy_violation_event;
 use crate::guardian::guardian_rejection_message;
 use crate::guardian::guardian_timeout_message;
 use crate::guardian::new_guardian_review_id;
@@ -155,8 +156,13 @@ impl ToolOrchestrator {
             default_exec_approval_requirement(approval_policy, &file_system_sandbox_policy)
         });
         if let Some(preflight_spec) = tool.preflight_spec(req) {
-            let method_context =
-                ToolPreflightContext::from_status(tool_ctx.session.method_state_status().await);
+            let method_context = ToolPreflightContext {
+                sandbox_policy: Some(crate::sandbox_policy::sandbox_policy_context(
+                    &turn_ctx.permission_profile,
+                    &turn_ctx.config.config_layer_stack,
+                )),
+                ..ToolPreflightContext::from_status(tool_ctx.session.method_state_status().await)
+            };
             let decision = evaluate_preflight(&preflight_spec, &method_context, &turn_ctx.cwd);
             let event = event_for_decision(
                 &tool_ctx.call_id,
@@ -179,6 +185,25 @@ impl ToolOrchestrator {
                 .session
                 .send_event(turn_ctx, EventMsg::AegisPreflightDecision(event))
                 .await;
+            if let Some(violation) = &decision.sandbox_policy_violation
+                && let Err(err) = tool_ctx
+                    .session
+                    .record_aegis_engine_event(
+                        &turn_ctx.sub_id,
+                        sandbox_policy_violation_event(
+                            &tool_ctx.call_id,
+                            &turn_ctx.sub_id,
+                            &tool_ctx.tool_name,
+                            violation,
+                        ),
+                    )
+                    .await
+                && tool_ctx.session.aegis_engine_event_emission_required()
+            {
+                return Err(ToolError::Rejected(format!(
+                    "Aegis Engine event emission is required but failed: {err}"
+                )));
+            }
             match decision.verdict {
                 AegisPreflightVerdict::Allow => {}
                 AegisPreflightVerdict::Block => {
@@ -355,6 +380,33 @@ impl ToolOrchestrator {
                             network_policy_decision,
                         })));
                     }
+                }
+                let retry_sandbox_policy = crate::sandbox_policy::sandbox_policy_context(
+                    &turn_ctx.permission_profile,
+                    &turn_ctx.config.config_layer_stack,
+                );
+                if let Some(violation) =
+                    crate::sandbox_policy::evaluate_sandbox_policy(&retry_sandbox_policy, true)
+                {
+                    if let Err(err) = tool_ctx
+                        .session
+                        .record_aegis_engine_event(
+                            &turn_ctx.sub_id,
+                            sandbox_policy_violation_event(
+                                &tool_ctx.call_id,
+                                &turn_ctx.sub_id,
+                                &tool_ctx.tool_name,
+                                &violation,
+                            ),
+                        )
+                        .await
+                        && tool_ctx.session.aegis_engine_event_emission_required()
+                    {
+                        return Err(ToolError::Rejected(format!(
+                            "Aegis Engine event emission is required but failed: {err}"
+                        )));
+                    }
+                    return Err(ToolError::Rejected(violation.reason));
                 }
                 let retry_reason =
                     if let Some(network_approval_context) = network_approval_context.as_ref() {

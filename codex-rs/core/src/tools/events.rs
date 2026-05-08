@@ -1,4 +1,5 @@
 use crate::function_tool::FunctionCallError;
+use crate::sandbox_policy::sandbox_posture_for_permission_profile;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::SharedTurnDiffTracker;
@@ -94,6 +95,11 @@ pub(crate) async fn emit_exec_command_begin(
                 parsed_cmd: parsed_cmd.to_vec(),
                 source,
                 interaction_input,
+                sandbox_posture: Some(sandbox_posture_for_permission_profile(
+                    &ctx.turn.permission_profile,
+                    ctx.turn.cwd.as_path(),
+                    &ctx.turn.config.config_layer_stack,
+                )),
             }),
         )
         .await;
@@ -521,6 +527,11 @@ async fn emit_exec_end(
                 parsed_cmd: exec_input.parsed_cmd.to_vec(),
                 source: exec_input.source,
                 interaction_input: exec_input.interaction_input.map(str::to_owned),
+                sandbox_posture: Some(sandbox_posture_for_permission_profile(
+                    &ctx.turn.permission_profile,
+                    ctx.turn.cwd.as_path(),
+                    &ctx.turn.config.config_layer_stack,
+                )),
                 stdout: exec_result.stdout,
                 stderr: exec_result.stderr,
                 aggregated_output: exec_result.aggregated_output,

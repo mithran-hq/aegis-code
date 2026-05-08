@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+use crate::sandbox_policy::SandboxPolicyViolation;
+use crate::sandbox_policy::allowed_modes_label;
+use crate::sandbox_policy::sandbox_mode_label;
 use crate::state::MethodStatePersistenceStatus;
 use codex_protocol::aegis_safety_event::AegisSafetyEvent;
 use codex_protocol::aegis_safety_event::AegisSafetyEventCategory;
@@ -16,6 +19,7 @@ use codex_protocol::method_state::MethodResumeValidityStatus;
 use codex_protocol::method_state::MethodReviewFinding;
 use codex_protocol::method_state::MethodReviewFindingStatus;
 use codex_protocol::method_state::MethodReviewSeverity;
+use codex_protocol::method_state::MethodSandboxPosture;
 use codex_protocol::protocol::AegisPreflightDecisionEvent;
 use codex_protocol::protocol::AegisPreflightVerdict;
 use serde::Serialize;
@@ -164,6 +168,122 @@ pub(crate) fn method_evidence_event(evidence: &MethodEvidence) -> AegisSafetyEve
         tags,
         context,
         redactions,
+    )
+}
+
+pub(crate) fn sandbox_posture_event(
+    summary: &str,
+    posture: &MethodSandboxPosture,
+) -> AegisSafetyEvent {
+    let mut context = AegisSafetyEventContext::new();
+    context.insert("sandbox_mode".to_string(), json!(posture.mode));
+    context.insert(
+        "permission_profile".to_string(),
+        json!(posture.permission_profile),
+    );
+    context.insert("enforcement".to_string(), json!(posture.enforcement));
+    context.insert("network".to_string(), json!(posture.network));
+    if let Some(policy) = &posture.policy {
+        context.insert("policy".to_string(), json!(policy));
+    }
+
+    AegisSafetyEvent::new(
+        AegisSafetyEventCategory::Sandbox,
+        AegisSafetySeverityHint::Info,
+        summary.to_string(),
+        vec![
+            "category:sandbox".to_string(),
+            "sandbox:posture".to_string(),
+            format!("sandbox_mode:{}", posture.mode),
+        ],
+        context,
+        Vec::new(),
+    )
+}
+
+pub(crate) fn sandbox_posture_changed_event(
+    previous: &MethodSandboxPosture,
+    current: &MethodSandboxPosture,
+) -> AegisSafetyEvent {
+    let mut context = AegisSafetyEventContext::new();
+    context.insert("previous".to_string(), json!(previous));
+    context.insert("current".to_string(), json!(current));
+
+    AegisSafetyEvent::new(
+        AegisSafetyEventCategory::Sandbox,
+        AegisSafetySeverityHint::Medium,
+        format!(
+            "Sandbox posture changed from {} to {}",
+            previous.mode, current.mode
+        ),
+        vec![
+            "category:sandbox".to_string(),
+            "sandbox:change".to_string(),
+            format!("sandbox_mode:{}", current.mode),
+        ],
+        context,
+        Vec::new(),
+    )
+}
+
+pub(crate) fn sandbox_policy_violation_event(
+    call_id: &str,
+    turn_id: &str,
+    tool_name: &str,
+    violation: &SandboxPolicyViolation,
+) -> AegisSafetyEvent {
+    let mut context = AegisSafetyEventContext::new();
+    context.insert("call_id".to_string(), json!(call_id));
+    context.insert("turn_id".to_string(), json!(turn_id));
+    context.insert("tool_name".to_string(), json!(tool_name));
+    context.insert("reason".to_string(), json!(violation.reason));
+    context.insert(
+        "allowed_modes".to_string(),
+        json!(
+            violation
+                .allowed_modes
+                .iter()
+                .copied()
+                .map(sandbox_mode_label)
+                .collect::<Vec<_>>()
+        ),
+    );
+    if let Some(active_mode) = violation.active_mode {
+        context.insert(
+            "active_mode".to_string(),
+            json!(sandbox_mode_label(active_mode)),
+        );
+    }
+    if let Some(requested_mode) = violation.requested_mode {
+        context.insert(
+            "requested_mode".to_string(),
+            json!(sandbox_mode_label(requested_mode)),
+        );
+    }
+    if let Some(source) = &violation.source {
+        context.insert("policy_source".to_string(), json!(source.to_string()));
+    }
+
+    let mut tags = vec![
+        "category:sandbox".to_string(),
+        "sandbox:policy_violation".to_string(),
+        format!("tool:{tool_name}"),
+        format!(
+            "allowed_modes:{}",
+            allowed_modes_label(&violation.allowed_modes)
+        ),
+    ];
+    if let Some(active_mode) = violation.active_mode {
+        tags.push(format!("sandbox_mode:{}", sandbox_mode_label(active_mode)));
+    }
+
+    AegisSafetyEvent::new(
+        AegisSafetyEventCategory::Sandbox,
+        AegisSafetySeverityHint::High,
+        "Sandbox policy violation".to_string(),
+        tags,
+        context,
+        Vec::new(),
     )
 }
 
@@ -369,6 +489,13 @@ fn resume_reason_tag(reason: MethodResumeValidityReason) -> &'static str {
         }
         MethodResumeValidityReason::MissingCurrentSchemaVersion => "missing_current_schema_version",
         MethodResumeValidityReason::SchemaVersionMismatch => "schema_version_mismatch",
+        MethodResumeValidityReason::MissingPersistedSandboxPosture => {
+            "missing_persisted_sandbox_posture"
+        }
+        MethodResumeValidityReason::MissingCurrentSandboxPosture => {
+            "missing_current_sandbox_posture"
+        }
+        MethodResumeValidityReason::SandboxPostureChanged => "sandbox_posture_changed",
     }
 }
 
@@ -526,6 +653,7 @@ mod tests {
                     thread_id: Some("thread-1".to_string()),
                     provider: Some("openai".to_string()),
                     model: Some("gpt".to_string()),
+                    sandbox_posture: None,
                 },
                 redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
             }),
@@ -644,6 +772,7 @@ mod tests {
                 commit: Some("abc123".to_string()),
                 linked_issue: None,
                 schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+                sandbox_posture: None,
             },
             provenance: MethodProvenance {
                 created_at_unix_seconds: 1,

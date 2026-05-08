@@ -4,6 +4,7 @@ use crate::aegis_engine_sink::AegisEngineSink;
 use crate::aegis_safety_event::method_evidence_event;
 use crate::aegis_safety_event::resume_status_event;
 use crate::aegis_safety_event::review_finding_event;
+use crate::aegis_safety_event::sandbox_posture_event;
 use crate::goals::GoalRuntimeState;
 use crate::method_evidence::EvidenceSessionSnapshot;
 use crate::method_evidence::build_method_evidence_for_command;
@@ -442,6 +443,7 @@ mod method_state_tests {
                         thread_id: Some("thread-1".to_string()),
                         provider: Some("test-provider".to_string()),
                         model: None,
+                        sandbox_posture: None,
                     },
                     redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
                 }),
@@ -512,9 +514,14 @@ mod method_state_tests {
     async fn fresh_session_method_state_status_is_missing_without_warning() {
         let temp_dir = tempfile::tempdir().expect("temp cwd");
         let cwd = AbsolutePathBuf::try_from(temp_dir.path().to_path_buf()).expect("absolute cwd");
-        let status =
-            load_method_state_persistence_status(None, ThreadId::new(), &InitialHistory::New, &cwd)
-                .await;
+        let status = load_method_state_persistence_status(
+            None,
+            ThreadId::new(),
+            &InitialHistory::New,
+            &cwd,
+            None,
+        )
+        .await;
 
         assert_eq!(status, MethodStatePersistenceStatus::Missing);
         assert_eq!(method_state_startup_warning(&status), None);
@@ -530,6 +537,7 @@ mod method_state_tests {
             thread_id,
             &resumed_history(thread_id),
             &cwd,
+            None,
         )
         .await;
 
@@ -545,7 +553,7 @@ mod method_state_tests {
         init_git_repo(repo_dir.path());
         let cwd = AbsolutePathBuf::try_from(repo_dir.path().to_path_buf()).expect("absolute cwd");
         let (_codex_home, runtime, thread_id) = seeded_runtime(cwd.as_path()).await;
-        let resume_context = current_method_resume_context(&cwd, None).await;
+        let resume_context = current_method_resume_context(&cwd, None, None).await;
         let state = sample_state(resume_context);
         runtime
             .upsert_thread_method_state(thread_id, &state)
@@ -557,6 +565,7 @@ mod method_state_tests {
             thread_id,
             &resumed_history(thread_id),
             &cwd,
+            None,
         )
         .await;
 
@@ -578,7 +587,7 @@ mod method_state_tests {
         init_git_repo(repo_dir.path());
         let cwd = AbsolutePathBuf::try_from(repo_dir.path().to_path_buf()).expect("absolute cwd");
         let (_codex_home, runtime, thread_id) = seeded_runtime(cwd.as_path()).await;
-        let mut resume_context = current_method_resume_context(&cwd, None).await;
+        let mut resume_context = current_method_resume_context(&cwd, None, None).await;
         resume_context.branch = Some("older-branch".to_string());
         let state = sample_state(resume_context);
         runtime
@@ -591,6 +600,7 @@ mod method_state_tests {
             thread_id,
             &resumed_history(thread_id),
             &cwd,
+            None,
         )
         .await;
 
@@ -659,6 +669,7 @@ pub(crate) struct AppServerClientMetadata {
 async fn current_method_resume_context(
     cwd: &AbsolutePathBuf,
     persisted_state: Option<&MethodState>,
+    sandbox_posture: Option<codex_protocol::method_state::MethodSandboxPosture>,
 ) -> MethodResumeContext {
     let git_info = collect_git_info(cwd.as_path()).await;
     let repository = git_info
@@ -680,6 +691,7 @@ async fn current_method_resume_context(
         commit,
         linked_issue,
         schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+        sandbox_posture,
     }
 }
 
@@ -721,6 +733,7 @@ async fn load_method_state_persistence_status(
     thread_id: ThreadId,
     initial_history: &InitialHistory,
     cwd: &AbsolutePathBuf,
+    sandbox_posture: Option<codex_protocol::method_state::MethodSandboxPosture>,
 ) -> MethodStatePersistenceStatus {
     if !matches!(initial_history, InitialHistory::Resumed(_)) {
         return MethodStatePersistenceStatus::Missing;
@@ -738,7 +751,8 @@ async fn load_method_state_persistence_status(
 
     match state_db.get_thread_method_state(thread_id).await {
         Ok(Some(record)) => {
-            let resume_context = current_method_resume_context(cwd, Some(&record.state)).await;
+            let resume_context =
+                current_method_resume_context(cwd, Some(&record.state), sandbox_posture).await;
             let resume_validity = record.state.compute_resume_validity(&resume_context);
             MethodStatePersistenceStatus::Loaded {
                 state: record.state,
@@ -866,14 +880,29 @@ impl Session {
             );
         };
 
+        let mut method_state = method_state;
+        let (cwd, sandbox_posture) = {
+            let state = self.state.lock().await;
+            let session_configuration = &state.session_configuration;
+            (
+                session_configuration.cwd.clone(),
+                Some(
+                    crate::sandbox_policy::sandbox_posture_for_permission_profile(
+                        session_configuration.permission_profile.get(),
+                        session_configuration.cwd.as_path(),
+                        &session_configuration
+                            .original_config_do_not_use
+                            .config_layer_stack,
+                    ),
+                ),
+            )
+        };
+        let resume_context =
+            current_method_resume_context(&cwd, Some(&method_state), sandbox_posture).await;
+        method_state.resume_context = resume_context.clone();
         let record = state_db
             .upsert_thread_method_state(self.conversation_id, &method_state)
             .await?;
-        let cwd = {
-            let state = self.state.lock().await;
-            state.session_configuration.cwd.clone()
-        };
-        let resume_context = current_method_resume_context(&cwd, Some(&record.state)).await;
         let resume_validity = record.state.compute_resume_validity(&resume_context);
         let status = MethodStatePersistenceStatus::Loaded {
             state: record.state,
@@ -929,6 +958,13 @@ impl Session {
                 thread_id: Some(thread_id),
                 provider: Some(provider),
                 model: Some(turn.model_info.slug.clone()),
+                sandbox_posture: Some(
+                    crate::sandbox_policy::sandbox_posture_for_permission_profile(
+                        &turn.permission_profile,
+                        turn.cwd.as_path(),
+                        &turn.config.config_layer_stack,
+                    ),
+                ),
             },
         )
         .await
@@ -1391,11 +1427,17 @@ impl Session {
             session_configuration.thread_name = thread_name.clone();
             validate_config_lock_if_configured(&session_configuration).await?;
             export_config_lock_if_configured(&session_configuration, thread_id).await?;
+            let sandbox_posture = Some(crate::sandbox_policy::sandbox_posture_for_permission_profile(
+                session_configuration.permission_profile.get(),
+                session_configuration.cwd.as_path(),
+                &config.config_layer_stack,
+            ));
             let method_state_status = load_method_state_persistence_status(
                 state_db_ctx.as_deref(),
                 thread_id,
                 &initial_history,
                 &session_configuration.cwd,
+                sandbox_posture.clone(),
             )
             .instrument(info_span!(
                 "session_init.method_state",
@@ -1499,6 +1541,17 @@ impl Session {
                 });
             }
             if let Err(err) = aegis_engine_sink.record(resume_status_event(&method_state_status)) {
+                post_session_configured_events.push(Event {
+                    id: INITIAL_SUBMIT_ID.to_owned(),
+                    msg: EventMsg::Warning(WarningEvent {
+                        message: format!("Aegis Engine event emission failed: {err}"),
+                    }),
+                });
+            }
+            if let Some(posture) = sandbox_posture.as_ref()
+                && let Err(err) =
+                    aegis_engine_sink.record(sandbox_posture_event("Sandbox posture selected", posture))
+            {
                 post_session_configured_events.push(Event {
                     id: INITIAL_SUBMIT_ID.to_owned(),
                     msg: EventMsg::Warning(WarningEvent {

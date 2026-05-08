@@ -4,11 +4,39 @@ use crate::context_packs::ContextPackKind;
 use crate::context_packs::PromotionStatus;
 use codex_model_provider_info::ANTHROPIC_DEFAULT_MODEL;
 use codex_model_provider_info::ANTHROPIC_PROVIDER_ID;
+use codex_protocol::method_state::MethodSandboxPolicyStatus;
 
 fn selection_source(source: &str, detail: Option<&str>) -> ConfigSelectionSource {
     ConfigSelectionSource {
         source: source.to_string(),
         detail: detail.map(str::to_string),
+    }
+}
+
+fn sandbox_diagnostic() -> SandboxDiagnostic {
+    SandboxDiagnostic {
+        posture: MethodSandboxPosture {
+            mode: "workspace-write".to_string(),
+            permission_profile: "workspace-write [workdir]".to_string(),
+            enforcement: "managed".to_string(),
+            network: "restricted".to_string(),
+            policy: Some(MethodSandboxPolicySummary {
+                status: MethodSandboxPolicyStatus::Allowed,
+                allowed_modes: vec!["read-only".to_string(), "workspace-write".to_string()],
+                source: Some("/tmp/requirements.toml".to_string()),
+                diagnostic: Some(
+                    "active sandbox mode `workspace-write` is allowed by policy".to_string(),
+                ),
+            }),
+        },
+        policy: MethodSandboxPolicySummary {
+            status: MethodSandboxPolicyStatus::Allowed,
+            allowed_modes: vec!["read-only".to_string(), "workspace-write".to_string()],
+            source: Some("/tmp/requirements.toml".to_string()),
+            diagnostic: Some(
+                "active sandbox mode `workspace-write` is allowed by policy".to_string(),
+            ),
+        },
     }
 }
 
@@ -49,6 +77,7 @@ fn human_report_lists_context_pack_status() {
             env_key: Some("OPENAI_API_KEY".to_string()),
             env_key_present: Some(true),
         },
+        sandbox: sandbox_diagnostic(),
         aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus {
             enabled: true,
             alerts_path: "/tmp/aegis-home/aegis-engine/alerts.jsonl".to_string(),
@@ -80,6 +109,9 @@ fn human_report_lists_context_pack_status() {
     assert!(output.contains("provider source: global_config (model_provider)"));
     assert!(output.contains("model source: global_config (model)"));
     assert!(output.contains("provider policy:"));
+    assert!(output.contains("Sandbox:"));
+    assert!(output.contains("mode: workspace-write"));
+    assert!(output.contains("policy diagnostic: active sandbox mode"));
     assert!(output.contains("project:example preferred openai-compatible"));
     assert!(output.contains("wire API: responses"));
     assert!(output.contains("env key: OPENAI_API_KEY (set)"));
@@ -111,6 +143,7 @@ fn human_report_makes_local_provider_endpoint_and_auth_clear() {
             env_key: None,
             env_key_present: None,
         },
+        sandbox: sandbox_diagnostic(),
         aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus {
             enabled: false,
             alerts_path: "/tmp/aegis-home/aegis-engine/alerts.jsonl".to_string(),
@@ -156,6 +189,7 @@ fn provider_report_serializes_env_key_presence_without_secret_value() {
             env_key: Some("OPENAI_API_KEY".to_string()),
             env_key_present: Some(true),
         },
+        sandbox: sandbox_diagnostic(),
         aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus {
             enabled: false,
             alerts_path: "/tmp/aegis-home/aegis-engine/alerts.jsonl".to_string(),

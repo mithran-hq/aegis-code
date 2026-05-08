@@ -3,10 +3,15 @@ use crate::config::Config;
 use crate::config::ConfigSelectionSource;
 use crate::config::ProviderPolicyDiagnostic;
 use crate::context_packs::ContextPackDiagnostic;
+use crate::sandbox_policy::sandbox_policy_context;
+use crate::sandbox_policy::sandbox_policy_summary;
+use crate::sandbox_policy::sandbox_posture_from_context;
 use codex_model_provider_info::AMAZON_BEDROCK_DEFAULT_MODEL;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::ANTHROPIC_DEFAULT_MODEL;
 use codex_model_provider_info::ANTHROPIC_PROVIDER_ID;
+use codex_protocol::method_state::MethodSandboxPolicySummary;
+use codex_protocol::method_state::MethodSandboxPosture;
 use codex_protocol::openai_models::ModelPreset;
 use serde::Serialize;
 
@@ -17,6 +22,7 @@ pub struct DoctorReport {
     pub cwd: String,
     pub config_path: String,
     pub provider: ProviderDiagnostic,
+    pub sandbox: SandboxDiagnostic,
     pub context_packs: Vec<ContextPackDiagnostic>,
     pub aegis_engine_alerts: AegisEngineAlertDoctorStatus,
 }
@@ -37,7 +43,23 @@ pub struct ProviderDiagnostic {
     pub env_key_present: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SandboxDiagnostic {
+    pub posture: MethodSandboxPosture,
+    pub policy: MethodSandboxPolicySummary,
+}
+
 pub fn build_doctor_report(config: &Config) -> DoctorReport {
+    let sandbox_context = sandbox_policy_context(
+        config.permissions.permission_profile.get(),
+        &config.config_layer_stack,
+    );
+    let posture = sandbox_posture_from_context(
+        config.permissions.permission_profile.get(),
+        config.cwd.as_path(),
+        &sandbox_context,
+    );
+    let policy = sandbox_policy_summary(&sandbox_context);
     DoctorReport {
         version: env!("CARGO_PKG_VERSION").to_string(),
         codex_home: config.codex_home.display().to_string(),
@@ -49,6 +71,7 @@ pub fn build_doctor_report(config: &Config) -> DoctorReport {
             .display()
             .to_string(),
         provider: build_provider_diagnostic(config),
+        sandbox: SandboxDiagnostic { posture, policy },
         context_packs: config.context_packs.diagnostics().to_vec(),
         aegis_engine_alerts: crate::aegis_engine_alerts::doctor_status(&config.aegis_engine),
     }
@@ -159,6 +182,31 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
                 policy.pack_id, policy.field, policy.provider_id, policy.status, policy.reason
             ));
         }
+    }
+    output.push_str("Sandbox:\n");
+    output.push_str(&format!("  mode: {}\n", report.sandbox.posture.mode));
+    output.push_str(&format!(
+        "  permissions: {}\n",
+        report.sandbox.posture.permission_profile
+    ));
+    output.push_str(&format!(
+        "  enforcement: {}, network: {}\n",
+        report.sandbox.posture.enforcement, report.sandbox.posture.network
+    ));
+    let allowed = if report.sandbox.policy.allowed_modes.is_empty() {
+        "unrestricted".to_string()
+    } else {
+        report.sandbox.policy.allowed_modes.join(", ")
+    };
+    output.push_str(&format!(
+        "  policy: {:?} ({})\n",
+        report.sandbox.policy.status, allowed
+    ));
+    if let Some(source) = &report.sandbox.policy.source {
+        output.push_str(&format!("  policy source: {source}\n"));
+    }
+    if let Some(diagnostic) = &report.sandbox.policy.diagnostic {
+        output.push_str(&format!("  policy diagnostic: {diagnostic}\n"));
     }
     output.push_str("Aegis Engine alerts:\n");
     let alerts = &report.aegis_engine_alerts;

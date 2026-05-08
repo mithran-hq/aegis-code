@@ -57,6 +57,7 @@ pub(crate) async fn record_method_review_output(
             thread_id: session.thread_id,
             provider: session.provider,
             model: session.model,
+            sandbox_posture: None,
         },
         redaction_status,
     };
@@ -321,6 +322,7 @@ mod tests {
                 commit: Some("abc123".to_string()),
                 linked_issue: None,
                 schema_version: Some(METHOD_STATE_SCHEMA_VERSION),
+                sandbox_posture: None,
             },
             provenance: MethodProvenance {
                 created_at_unix_seconds: 1,
@@ -369,6 +371,7 @@ mod tests {
                 thread_id: Some("thread".to_string()),
                 provider: Some("provider".to_string()),
                 model: Some("model".to_string()),
+                sandbox_posture: None,
             },
             redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
         }
