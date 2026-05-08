@@ -81,6 +81,7 @@ use codex_otel::set_parent_from_w3c_trace_context;
 use codex_protocol::ThreadId;
 use codex_protocol::ToolName;
 use codex_protocol::account::PlanType as AccountPlanType;
+use codex_protocol::aegis_safety_event::AegisSafetyEvent;
 use codex_protocol::approvals::ElicitationRequestEvent;
 use codex_protocol::approvals::ExecPolicyAmendment;
 use codex_protocol::approvals::NetworkPolicyAmendment;
@@ -1538,6 +1539,29 @@ impl Session {
             };
             self.send_event_raw(legacy_event).await;
         }
+    }
+
+    pub(crate) async fn record_aegis_engine_event(
+        &self,
+        event_id: &str,
+        safety_event: AegisSafetyEvent,
+    ) -> Result<(), crate::aegis_engine_sink::AegisEngineSinkError> {
+        if let Err(err) = self.services.aegis_engine_sink.record(safety_event) {
+            let cloned = err.clone();
+            self.send_event_raw(Event {
+                id: event_id.to_string(),
+                msg: EventMsg::Warning(WarningEvent {
+                    message: format!("Aegis Engine event emission failed: {err}"),
+                }),
+            })
+            .await;
+            return Err(cloned);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn aegis_engine_event_emission_required(&self) -> bool {
+        self.services.aegis_engine_sink.required()
     }
 
     /// Forwards terminal turn events from spawned MultiAgentV2 children to their direct parent.

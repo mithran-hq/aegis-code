@@ -32,6 +32,7 @@ pub use cloud_requirements::CloudRequirementsLoadErrorCode;
 pub use cloud_requirements::CloudRequirementsLoader;
 pub use codex_app_server_protocol::ConfigLayerSource;
 pub use codex_utils_absolute_path::AbsolutePathBuf;
+pub use config_requirements::AegisEngineRequirementsToml;
 pub use config_requirements::AppRequirementToml;
 pub use config_requirements::AppsRequirementsToml;
 pub use config_requirements::ConfigRequirements;

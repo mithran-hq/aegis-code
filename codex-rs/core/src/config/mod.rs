@@ -33,6 +33,9 @@ use codex_config::config_toml::RealtimeAudioConfig;
 use codex_config::config_toml::RealtimeConfig;
 use codex_config::config_toml::ThreadStoreToml;
 use codex_config::config_toml::validate_model_providers;
+use codex_config::config_toml::{
+    AegisEngineFailureModeToml, AegisEngineMirrorToml, AegisEngineToml,
+};
 use codex_config::loader::load_config_layers_state;
 use codex_config::loader::project_trust_key;
 use codex_config::profile_toml::ConfigProfile;
@@ -789,6 +792,9 @@ pub struct Config {
     /// Settings for the optional Aegis Agent Runtime subprocess substrate.
     pub aegis_agent_runtime: AegisAgentRuntimeConfig,
 
+    /// Settings for streaming safety events to Aegis Engine.
+    pub aegis_engine: AegisEngineConfig,
+
     /// Centralized feature flags; source of truth for feature gating.
     pub features: ManagedFeatures,
 
@@ -897,6 +903,39 @@ impl Default for AegisAgentRuntimeConfig {
             failure_mode: AegisAgentRuntimeFailureMode::Fallback,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AegisEngineFailureMode {
+    BestEffort,
+    Require,
+}
+
+impl From<AegisEngineFailureModeToml> for AegisEngineFailureMode {
+    fn from(value: AegisEngineFailureModeToml) -> Self {
+        match value {
+            AegisEngineFailureModeToml::BestEffort => Self::BestEffort,
+            AegisEngineFailureModeToml::Require => Self::Require,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case", tag = "mode")]
+pub enum AegisEngineMirrorConfig {
+    None,
+    DaemonStdin { command: Vec<String> },
+    Pipe { path: PathBuf },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AegisEngineConfig {
+    pub enabled: bool,
+    pub jsonl_path: PathBuf,
+    pub buffer_capacity: usize,
+    pub failure_mode: AegisEngineFailureMode,
+    pub mirror: AegisEngineMirrorConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -2089,6 +2128,116 @@ fn resolve_aegis_agent_runtime_config(
     })
 }
 
+const DEFAULT_AEGIS_ENGINE_BUFFER_CAPACITY: usize = 256;
+
+fn resolve_aegis_engine_config(
+    config_toml: &ConfigToml,
+    codex_home: &AbsolutePathBuf,
+    requirements: Option<&Sourced<codex_config::AegisEngineRequirementsToml>>,
+    startup_warnings: &mut Vec<String>,
+) -> std::io::Result<AegisEngineConfig> {
+    let default_path = codex_home.join("aegis-engine").join("events.jsonl");
+    let configured = config_toml.aegis_engine.as_ref();
+    let required_by_policy = requirements
+        .and_then(|requirements| requirements.required)
+        .unwrap_or(false);
+
+    let configured_enabled = configured.and_then(|config| config.enabled);
+    let enabled = if required_by_policy {
+        if configured_enabled == Some(false) {
+            let source = requirements
+                .map(|requirements| requirements.source.to_string())
+                .unwrap_or_else(|| "requirements".to_string());
+            startup_warnings.push(format!(
+                "`aegis_engine.enabled = false` is disallowed by {source}; enabling Aegis Engine event emission"
+            ));
+        }
+        true
+    } else {
+        configured_enabled.unwrap_or(true)
+    };
+
+    let failure_mode = if required_by_policy {
+        if configured.and_then(|config| config.failure_mode)
+            == Some(AegisEngineFailureModeToml::BestEffort)
+        {
+            let source = requirements
+                .map(|requirements| requirements.source.to_string())
+                .unwrap_or_else(|| "requirements".to_string());
+            startup_warnings.push(format!(
+                "`aegis_engine.failure_mode = \"best-effort\"` is disallowed by {source}; requiring Aegis Engine event emission"
+            ));
+        }
+        AegisEngineFailureMode::Require
+    } else {
+        configured
+            .and_then(|config| config.failure_mode)
+            .map(AegisEngineFailureMode::from)
+            .unwrap_or(AegisEngineFailureMode::BestEffort)
+    };
+
+    let buffer_capacity = configured
+        .and_then(|config| config.buffer_capacity)
+        .unwrap_or(DEFAULT_AEGIS_ENGINE_BUFFER_CAPACITY);
+    if buffer_capacity == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "aegis_engine.buffer_capacity must be at least 1",
+        ));
+    }
+
+    let jsonl_path = configured
+        .and_then(|config| config.jsonl_path.as_ref())
+        .map(AbsolutePathBuf::to_path_buf)
+        .unwrap_or_else(|| default_path.to_path_buf());
+    let mirror = resolve_aegis_engine_mirror(configured)?;
+
+    Ok(AegisEngineConfig {
+        enabled,
+        jsonl_path,
+        buffer_capacity,
+        failure_mode,
+        mirror,
+    })
+}
+
+fn resolve_aegis_engine_mirror(
+    configured: Option<&AegisEngineToml>,
+) -> std::io::Result<AegisEngineMirrorConfig> {
+    let Some(configured) = configured else {
+        return Ok(AegisEngineMirrorConfig::None);
+    };
+    match configured.mirror.unwrap_or(AegisEngineMirrorToml::None) {
+        AegisEngineMirrorToml::None => Ok(AegisEngineMirrorConfig::None),
+        AegisEngineMirrorToml::DaemonStdin => {
+            let command = configured.daemon_command.clone().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "aegis_engine.daemon_command is required when mirror = \"daemon-stdin\"",
+                )
+            })?;
+            if command.is_empty() || command.iter().any(|part| part.trim().is_empty()) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "aegis_engine.daemon_command must contain at least one non-empty argv element",
+                ));
+            }
+            Ok(AegisEngineMirrorConfig::DaemonStdin { command })
+        }
+        AegisEngineMirrorToml::Pipe => {
+            let path = configured.pipe_path.as_ref().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "aegis_engine.pipe_path is required when mirror = \"pipe\"",
+                )
+            })?;
+            Ok(AegisEngineMirrorConfig::Pipe {
+                path: path.to_path_buf(),
+            })
+        }
+    }
+}
+
 fn resolve_terminal_resize_reflow_config(config_toml: &ConfigToml) -> TerminalResizeReflowConfig {
     let Some(tui) = config_toml.tui.as_ref() else {
         return TerminalResizeReflowConfig::default();
@@ -2210,6 +2359,7 @@ impl Config {
             network: network_requirements,
             filesystem: filesystem_requirements,
             guardian_policy_config_source: _,
+            aegis_engine: aegis_engine_requirements,
         } = config_layer_stack.requirements().clone();
 
         let user_instructions = AgentsMdManager::load_global_instructions(Some(&codex_home))
@@ -2218,6 +2368,12 @@ impl Config {
             .startup_warnings()
             .unwrap_or_default()
             .to_vec();
+        let aegis_engine = resolve_aegis_engine_config(
+            &cfg,
+            &codex_home,
+            aegis_engine_requirements.as_ref(),
+            &mut startup_warnings,
+        )?;
 
         // Destructure ConfigOverrides fully to ensure all overrides are applied.
         let ConfigOverrides {
@@ -3234,6 +3390,7 @@ impl Config {
             ghost_snapshot,
             multi_agent_v2,
             aegis_agent_runtime,
+            aegis_engine,
             features,
             suppress_unstable_features_warning: cfg
                 .suppress_unstable_features_warning

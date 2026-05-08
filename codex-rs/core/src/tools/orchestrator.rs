@@ -6,6 +6,7 @@ simple sequence for any ToolRuntime: approval → select sandbox → attempt →
 retry with an escalated sandbox strategy on denial (no re‑approval thanks to
 caching).
 */
+use crate::aegis_safety_event::preflight_decision_event;
 use crate::guardian::guardian_rejection_message;
 use crate::guardian::guardian_timeout_message;
 use crate::guardian::new_guardian_review_id;
@@ -164,6 +165,16 @@ impl ToolOrchestrator {
                 &preflight_spec,
                 &decision,
             );
+            if let Err(err) = tool_ctx
+                .session
+                .record_aegis_engine_event(&turn_ctx.sub_id, preflight_decision_event(&event))
+                .await
+                && tool_ctx.session.aegis_engine_event_emission_required()
+            {
+                return Err(ToolError::Rejected(format!(
+                    "Aegis Engine event emission is required but failed: {err}"
+                )));
+            }
             tool_ctx
                 .session
                 .send_event(turn_ctx, EventMsg::AegisPreflightDecision(event))

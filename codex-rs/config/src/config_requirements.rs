@@ -98,6 +98,8 @@ pub struct ConfigRequirements {
     pub filesystem: Option<Sourced<FilesystemConstraints>>,
     /// Source for the managed guardian policy config, when one is configured.
     pub guardian_policy_config_source: Option<RequirementSource>,
+    /// Managed Aegis Engine emission policy.
+    pub aegis_engine: Option<Sourced<AegisEngineRequirementsToml>>,
 }
 
 impl Default for ConfigRequirements {
@@ -131,6 +133,7 @@ impl Default for ConfigRequirements {
             network: None,
             filesystem: None,
             guardian_policy_config_source: None,
+            aegis_engine: None,
         }
     }
 }
@@ -634,6 +637,17 @@ pub(crate) fn merge_enablement_settings_descending(
     }
 }
 
+#[derive(Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+pub struct AegisEngineRequirementsToml {
+    pub required: Option<bool>,
+}
+
+impl AegisEngineRequirementsToml {
+    pub fn is_empty(&self) -> bool {
+        self.required.is_none()
+    }
+}
+
 /// Base config deserialized from system `requirements.toml` or MDM.
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ConfigRequirementsToml {
@@ -654,6 +668,7 @@ pub struct ConfigRequirementsToml {
     pub network: Option<NetworkRequirementsToml>,
     pub permissions: Option<PermissionsRequirementsToml>,
     pub guardian_policy_config: Option<String>,
+    pub aegis_engine: Option<AegisEngineRequirementsToml>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -700,6 +715,7 @@ pub struct ConfigRequirementsWithSources {
     pub network: Option<Sourced<NetworkRequirementsToml>>,
     pub permissions: Option<Sourced<PermissionsRequirementsToml>>,
     pub guardian_policy_config: Option<Sourced<String>>,
+    pub aegis_engine: Option<Sourced<AegisEngineRequirementsToml>>,
 }
 
 impl ConfigRequirementsWithSources {
@@ -736,6 +752,7 @@ impl ConfigRequirementsWithSources {
             network: _,
             permissions: _,
             guardian_policy_config: _,
+            aegis_engine: _,
         } = &other;
 
         let mut other = other;
@@ -764,6 +781,7 @@ impl ConfigRequirementsWithSources {
                 network,
                 permissions,
                 guardian_policy_config,
+                aegis_engine,
             }
         );
 
@@ -792,6 +810,7 @@ impl ConfigRequirementsWithSources {
             network,
             permissions,
             guardian_policy_config,
+            aegis_engine,
         } = self;
         ConfigRequirementsToml {
             allowed_approval_policies: allowed_approval_policies.map(|sourced| sourced.value),
@@ -809,6 +828,7 @@ impl ConfigRequirementsWithSources {
             network: network.map(|sourced| sourced.value),
             permissions: permissions.map(|sourced| sourced.value),
             guardian_policy_config: guardian_policy_config.map(|sourced| sourced.value),
+            aegis_engine: aegis_engine.map(|sourced| sourced.value),
         }
     }
 }
@@ -907,6 +927,10 @@ impl ConfigRequirementsToml {
                 .guardian_policy_config
                 .as_deref()
                 .is_none_or(|value| value.trim().is_empty())
+            && self
+                .aegis_engine
+                .as_ref()
+                .is_none_or(AegisEngineRequirementsToml::is_empty)
     }
 }
 
@@ -929,6 +953,7 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
             network,
             permissions,
             guardian_policy_config,
+            aegis_engine,
         } = toml;
 
         let approval_policy = match allowed_approval_policies {
@@ -1163,6 +1188,7 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
             network,
             filesystem,
             guardian_policy_config_source,
+            aegis_engine: aegis_engine.filter(|requirements| !requirements.value.is_empty()),
         })
     }
 }

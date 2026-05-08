@@ -787,6 +787,7 @@ allowed_approval_policies = ["on-request"]
                 network: None,
                 permissions: None,
                 guardian_policy_config: None,
+                aegis_engine: None,
             }))
         }),
         &codex_config::NoopThreadConfigLoader,
@@ -844,6 +845,7 @@ allowed_approval_policies = ["on-request"]
             network: None,
             permissions: None,
             guardian_policy_config: None,
+            aegis_engine: None,
         },
     );
     load_requirements_toml(
@@ -1052,6 +1054,7 @@ async fn load_config_layers_includes_cloud_requirements() -> anyhow::Result<()> 
         network: None,
         permissions: None,
         guardian_policy_config: None,
+        aegis_engine: None,
     };
     let expected = requirements.clone();
     let cloud_requirements = CloudRequirementsLoader::new(async move { Ok(Some(requirements)) });

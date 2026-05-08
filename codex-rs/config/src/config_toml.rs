@@ -87,6 +87,41 @@ const fn default_hide_agent_reasoning() -> Option<bool> {
     Some(false)
 }
 
+/// Aegis Engine event sink settings.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct AegisEngineToml {
+    /// Enables local event emission. Defaults to true.
+    pub enabled: Option<bool>,
+    /// JSONL audit log path. Defaults to `$AEGIS_HOME/aegis-engine/events.jsonl`.
+    pub jsonl_path: Option<AbsolutePathBuf>,
+    /// Bounded async queue capacity. Defaults to 256.
+    pub buffer_capacity: Option<usize>,
+    /// Failure behavior for protected workflows. Defaults to best-effort.
+    pub failure_mode: Option<AegisEngineFailureModeToml>,
+    /// Optional mirror destination. The local JSONL sink remains enabled.
+    pub mirror: Option<AegisEngineMirrorToml>,
+    /// Command used when `mirror = "daemon-stdin"`.
+    pub daemon_command: Option<Vec<String>>,
+    /// Path used when `mirror = "pipe"`.
+    pub pipe_path: Option<AbsolutePathBuf>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AegisEngineFailureModeToml {
+    BestEffort,
+    Require,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AegisEngineMirrorToml {
+    None,
+    DaemonStdin,
+    Pipe,
+}
+
 /// Base config deserialized from ~/.aegis/config.toml.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
@@ -275,6 +310,10 @@ pub struct ConfigToml {
     /// Directory where Aegis Code writes log files, for example `codex-tui.log`.
     /// Defaults to `$AEGIS_HOME/log`.
     pub log_dir: Option<AbsolutePathBuf>,
+
+    /// Aegis Engine safety event emission settings.
+    #[serde(default)]
+    pub aegis_engine: Option<AegisEngineToml>,
 
     /// Debugging and reproducibility settings.
     pub debug: Option<DebugToml>,

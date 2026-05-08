@@ -1,4 +1,8 @@
 use super::*;
+use crate::aegis_engine_sink::AegisEngineSink;
+use crate::aegis_safety_event::method_evidence_event;
+use crate::aegis_safety_event::resume_status_event;
+use crate::aegis_safety_event::review_finding_event;
 use crate::goals::GoalRuntimeState;
 use crate::method_evidence::EvidenceSessionSnapshot;
 use crate::method_evidence::build_method_evidence_for_command;
@@ -869,6 +873,7 @@ impl Session {
             return;
         };
 
+        let safety_event = method_evidence_event(&evidence);
         link_method_evidence(&mut method_state, evidence);
         if let Err(err) = self.replace_method_state(method_state).await {
             self.send_event(
@@ -878,6 +883,10 @@ impl Session {
                 }),
             )
             .await;
+        } else {
+            let _ = self
+                .record_aegis_engine_event(&turn.sub_id, safety_event)
+                .await;
         }
     }
 
@@ -916,6 +925,11 @@ impl Session {
             },
         )
         .await;
+        let safety_events = method_state
+            .review_findings
+            .iter()
+            .map(review_finding_event)
+            .collect::<Vec<_>>();
         if let Err(err) = self.replace_method_state(method_state).await {
             self.send_event(
                 turn,
@@ -924,6 +938,10 @@ impl Session {
                 }),
             )
             .await;
+        } else {
+            for event in safety_events {
+                let _ = self.record_aegis_engine_event(&turn.sub_id, event).await;
+            }
         }
         true
     }
@@ -1329,7 +1347,7 @@ impl Session {
             }
             let state = SessionState::new_with_method_state_status(
                 session_configuration.clone(),
-                method_state_status,
+                method_state_status.clone(),
             );
             let managed_network_requirements_configured = config
                 .config_layer_stack
@@ -1408,6 +1426,22 @@ impl Session {
                     config.analytics_enabled,
                 )
             });
+            let (aegis_engine_sink, aegis_engine_diagnostics) =
+                AegisEngineSink::start(&config.aegis_engine).await?;
+            for message in aegis_engine_diagnostics {
+                post_session_configured_events.push(Event {
+                    id: INITIAL_SUBMIT_ID.to_owned(),
+                    msg: EventMsg::Warning(WarningEvent { message }),
+                });
+            }
+            if let Err(err) = aegis_engine_sink.record(resume_status_event(&method_state_status)) {
+                post_session_configured_events.push(Event {
+                    id: INITIAL_SUBMIT_ID.to_owned(),
+                    msg: EventMsg::Warning(WarningEvent {
+                        message: format!("Aegis Engine event emission failed: {err}"),
+                    }),
+                });
+            }
             let session_id = if session_configuration.session_source.is_non_root_agent() {
                 agent_control.session_id()
             } else {
@@ -1433,6 +1467,7 @@ impl Session {
                 shell_zsh_path: config.zsh_path.clone(),
                 main_execve_wrapper_exe: config.main_execve_wrapper_exe.clone(),
                 analytics_events_client,
+                aegis_engine_sink,
                 hooks: arc_swap::ArcSwap::from_pointee(hooks),
                 rollout_thread_trace,
                 user_shell: Arc::new(default_shell),

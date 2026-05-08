@@ -223,6 +223,51 @@ The v1 envelope has these fields:
 }
 ```
 
+## Sink Configuration
+
+Aegis Code starts the Aegis Engine sink by default. The durable baseline is a
+local JSONL audit log at `$AEGIS_HOME/aegis-engine/events.jsonl`; users can opt
+out with:
+
+```toml
+[aegis_engine]
+enabled = false
+```
+
+The sink is asynchronous and bounded. By default, sink startup failures, write
+failures, and queue overflow produce warnings but do not stop normal coding:
+
+```toml
+[aegis_engine]
+buffer_capacity = 256
+failure_mode = "best-effort"
+```
+
+Managed requirements can make emission mandatory for protected workflows:
+
+```toml
+[aegis_engine]
+required = true
+```
+
+When required, Aegis Code forces the sink on and uses `failure_mode =
+"require"`. Local JSONL remains the source of truth even when events are also
+mirrored to Aegis Engine:
+
+```toml
+[aegis_engine]
+mirror = "daemon-stdin"
+daemon_command = ["aegis-engine", "ingest", "--stdin"]
+```
+
+Pipe mirroring is also supported for an existing writable pipe or file:
+
+```toml
+[aegis_engine]
+mirror = "pipe"
+pipe_path = "/tmp/aegis-engine-events.pipe"
+```
+
 ## Redaction Rules
 
 Event context should contain identifiers, statuses, summaries, redacted argv,

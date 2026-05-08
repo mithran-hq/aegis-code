@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::SkillsManager;
+use crate::aegis_engine_sink::AegisEngineSink;
 use crate::aegis_secret::AegisSecretBroker;
 use crate::agent::AgentControl;
 use crate::client::ModelClient;
@@ -44,6 +45,7 @@ pub(crate) struct SessionServices {
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) main_execve_wrapper_exe: Option<PathBuf>,
     pub(crate) analytics_events_client: AnalyticsEventsClient,
+    pub(crate) aegis_engine_sink: AegisEngineSink,
     pub(crate) hooks: ArcSwap<Hooks>,
     pub(crate) rollout_thread_trace: ThreadTraceContext,
     pub(crate) user_shell: Arc<crate::shell::Shell>,

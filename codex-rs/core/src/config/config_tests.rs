@@ -8,6 +8,8 @@ use assert_matches::assert_matches;
 use codex_config::CONFIG_TOML_FILE;
 use codex_config::ConfigLayerEntry;
 use codex_config::RequirementSource;
+use codex_config::config_toml::AegisEngineFailureModeToml;
+use codex_config::config_toml::AegisEngineMirrorToml;
 use codex_config::config_toml::AgentRoleToml;
 use codex_config::config_toml::AgentsToml;
 use codex_config::config_toml::AutoReviewToml;
@@ -5425,6 +5427,19 @@ impl PrecedenceTestFixture {
     }
 }
 
+fn default_aegis_engine_config(codex_home: &AbsolutePathBuf) -> AegisEngineConfig {
+    AegisEngineConfig {
+        enabled: true,
+        jsonl_path: codex_home
+            .join("aegis-engine")
+            .join("events.jsonl")
+            .to_path_buf(),
+        buffer_capacity: 256,
+        failure_mode: AegisEngineFailureMode::BestEffort,
+        mirror: AegisEngineMirrorConfig::None,
+    }
+}
+
 #[tokio::test]
 async fn cli_override_sets_compact_prompt() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
@@ -7037,6 +7052,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             ghost_snapshot: GhostSnapshotConfig::default(),
             multi_agent_v2: MultiAgentV2Config::default(),
             aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
+            aegis_engine: default_aegis_engine_config(&fixture.codex_home()),
             features: Features::with_defaults().into(),
             suppress_unstable_features_warning: false,
             active_profile: Some("o3".to_string()),
@@ -7298,6 +7314,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
         aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
+        aegis_engine: default_aegis_engine_config(&fixture.codex_home()),
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("gpt3".to_string()),
@@ -7458,6 +7475,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
         aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
+        aegis_engine: default_aegis_engine_config(&fixture.codex_home()),
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("zdr".to_string()),
@@ -7603,6 +7621,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
         aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
+        aegis_engine: default_aegis_engine_config(&fixture.codex_home()),
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("gpt5".to_string()),
@@ -7657,6 +7676,7 @@ async fn test_requirements_web_search_mode_allowlist_does_not_warn_when_unset() 
         network: None,
         permissions: None,
         guardian_policy_config: None,
+        aegis_engine: None,
     };
     let requirement_source = codex_config::RequirementSource::Unknown;
     let requirement_source_for_error = requirement_source.clone();
@@ -8345,6 +8365,142 @@ async fn requirements_disallowing_default_sandbox_falls_back_to_required_default
 }
 
 #[tokio::test]
+async fn aegis_engine_defaults_to_enabled_jsonl_sink() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .build()
+        .await?;
+
+    assert!(config.aegis_engine.enabled);
+    assert_eq!(
+        config.aegis_engine.jsonl_path,
+        codex_home.path().join("aegis-engine").join("events.jsonl")
+    );
+    assert_eq!(config.aegis_engine.buffer_capacity, 256);
+    assert_eq!(
+        config.aegis_engine.failure_mode,
+        AegisEngineFailureMode::BestEffort
+    );
+    assert_eq!(config.aegis_engine.mirror, AegisEngineMirrorConfig::None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn aegis_engine_can_be_disabled_unless_required() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"
+[aegis_engine]
+enabled = false
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .build()
+        .await?;
+
+    assert!(!config.aegis_engine.enabled);
+    Ok(())
+}
+
+#[tokio::test]
+async fn aegis_engine_requirements_force_emission() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"
+[aegis_engine]
+enabled = false
+failure_mode = "best-effort"
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .cloud_requirements(CloudRequirementsLoader::new(async {
+            Ok(Some(codex_config::ConfigRequirementsToml {
+                aegis_engine: Some(codex_config::AegisEngineRequirementsToml {
+                    required: Some(true),
+                }),
+                ..Default::default()
+            }))
+        }))
+        .build()
+        .await?;
+
+    assert!(config.aegis_engine.enabled);
+    assert_eq!(
+        config.aegis_engine.failure_mode,
+        AegisEngineFailureMode::Require
+    );
+    assert!(
+        config
+            .startup_warnings
+            .iter()
+            .any(|warning| warning.contains("aegis_engine.enabled = false"))
+    );
+    assert!(
+        config
+            .startup_warnings
+            .iter()
+            .any(|warning| warning.contains("aegis_engine.failure_mode"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn aegis_engine_rejects_invalid_mirror_config() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"
+[aegis_engine]
+mirror = "daemon-stdin"
+"#,
+    )?;
+
+    let err = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .build()
+        .await
+        .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("aegis_engine.daemon_command is required")
+    );
+    Ok(())
+}
+
+#[test]
+fn aegis_engine_toml_deserializes_mirror_options() {
+    let parsed: ConfigToml = toml::from_str(
+        r#"
+[aegis_engine]
+enabled = true
+buffer_capacity = 64
+failure_mode = "require"
+mirror = "pipe"
+pipe_path = "/tmp/aegis-engine.pipe"
+"#,
+    )
+    .unwrap();
+
+    let aegis_engine = parsed.aegis_engine.unwrap();
+    assert_eq!(aegis_engine.enabled, Some(true));
+    assert_eq!(aegis_engine.buffer_capacity, Some(64));
+    assert_eq!(
+        aegis_engine.failure_mode,
+        Some(AegisEngineFailureModeToml::Require)
+    );
+    assert_eq!(aegis_engine.mirror, Some(AegisEngineMirrorToml::Pipe));
+}
+
+#[tokio::test]
 async fn explicit_sandbox_mode_falls_back_when_disallowed_by_requirements() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     std::fs::write(
@@ -8369,6 +8525,7 @@ async fn explicit_sandbox_mode_falls_back_when_disallowed_by_requirements() -> s
         network: None,
         permissions: None,
         guardian_policy_config: None,
+        aegis_engine: None,
     };
 
     let config = ConfigBuilder::without_managed_config_for_tests()
