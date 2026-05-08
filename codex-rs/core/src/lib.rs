@@ -43,6 +43,7 @@ mod flags;
 mod git_info_tests;
 mod goals;
 pub mod issue_train;
+pub mod pr_readiness;
 pub use goals::ExternalGoalPreviousStatus;
 pub use goals::ExternalGoalSet;
 mod guardian;

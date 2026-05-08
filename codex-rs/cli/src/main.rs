@@ -39,10 +39,17 @@ use codex_core::issue_train::IssueTrainReport;
 use codex_core::issue_train::IssueTrainSnapshot;
 use codex_core::issue_train::parse_parent_child_refs;
 use codex_core::issue_train::validate_issue_train;
+use codex_core::pr_readiness::PrReadinessReport;
+use codex_core::pr_readiness::PrReadinessSnapshot;
+use codex_core::pr_readiness::PullRequestSnapshot;
+use codex_core::pr_readiness::parse_allowed_paths_from_pr_body;
+use codex_core::pr_readiness::parse_closing_issue_refs;
+use codex_core::pr_readiness::validate_pr_readiness;
 use codex_exec::Cli as ExecCli;
 use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
 use codex_execpolicy::ExecPolicyCheckCommand;
+use codex_protocol::method_state::MethodState;
 use codex_responses_api_proxy::Args as ResponsesApiProxyArgs;
 use codex_rollout_trace::REDUCED_STATE_FILE_NAME;
 use codex_rollout_trace::replay_bundle;
@@ -165,6 +172,9 @@ enum Subcommand {
     /// Validate parent-plan and child-task GitHub issue trains.
     IssueTrain(IssueTrainCommand),
 
+    /// Validate pull request readiness against method evidence.
+    PrReadiness(PrReadinessCommand),
+
     /// Manage configured context-pack lifecycle state.
     ContextPack(ContextPackCommand),
 
@@ -259,6 +269,42 @@ struct IssueTrainValidateCommand {
     /// Parent plan issue number. Defaults to the single open issue labeled aegis-code:plan.
     #[arg(long)]
     parent: Option<u64>,
+
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Parser)]
+#[command(bin_name = "aegis pr-readiness")]
+struct PrReadinessCommand {
+    #[command(subcommand)]
+    subcommand: PrReadinessSubcommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum PrReadinessSubcommand {
+    /// Validate a pull request before it closes a task issue.
+    Validate(PrReadinessValidateCommand),
+}
+
+#[derive(Debug, Clone, Parser)]
+struct PrReadinessValidateCommand {
+    /// GitHub repository in OWNER/REPO form. Defaults to the current repository.
+    #[arg(long)]
+    repo: Option<String>,
+
+    /// Pull request number. Defaults to the current branch's pull request.
+    #[arg(long)]
+    pr: Option<u64>,
+
+    /// Method-state JSON artifact produced for this PR.
+    #[arg(long = "method-state")]
+    method_state: PathBuf,
+
+    /// Allowed changed path prefix. May be provided multiple times.
+    #[arg(long = "allowed-path")]
+    allowed_paths: Vec<String>,
 
     /// Emit machine-readable JSON.
     #[arg(long)]
@@ -1302,6 +1348,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             run_issue_train_command(cmd)?;
         }
+        Some(Subcommand::PrReadiness(cmd)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "pr-readiness",
+            )?;
+            run_pr_readiness_command(cmd)?;
+        }
         Some(Subcommand::ContextPack(cmd)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1624,6 +1678,161 @@ fn run_issue_train_command(cmd: IssueTrainCommand) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_pr_readiness_command(cmd: PrReadinessCommand) -> anyhow::Result<()> {
+    match cmd.subcommand {
+        PrReadinessSubcommand::Validate(cmd) => {
+            let runner = ProcessGhRunner;
+            let report = validate_pr_readiness_from_github(&cmd, &runner)?;
+            if cmd.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", format_pr_readiness_report_human(&report));
+            }
+
+            if !report.valid {
+                std::process::exit(1);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_pr_readiness_from_github(
+    cmd: &PrReadinessValidateCommand,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<PrReadinessReport> {
+    let snapshot = load_pr_readiness_snapshot(cmd, runner)?;
+    Ok(validate_pr_readiness(&snapshot))
+}
+
+fn load_pr_readiness_snapshot(
+    cmd: &PrReadinessValidateCommand,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<PrReadinessSnapshot> {
+    let repo = resolve_github_repo(cmd.repo.as_deref(), runner)?;
+    let pr_number = resolve_pr_number(&repo, cmd.pr, runner)?;
+    let pull_request = fetch_github_pr(&repo, pr_number, runner)?;
+    let mut allowed_paths = cmd.allowed_paths.clone();
+    allowed_paths.extend(parse_allowed_paths_from_pr_body(&pull_request.body));
+    let closing_refs = parse_closing_issue_refs(&pull_request.body);
+    let linked_issue = if closing_refs.len() == 1 {
+        fetch_github_issue(&repo, closing_refs[0], runner).ok()
+    } else {
+        None
+    };
+    let parent_number = resolve_parent_issue_number(&repo, None, runner)?;
+    let parent_issue = Some(fetch_github_issue(&repo, parent_number, runner)?);
+    let child_issues = parent_issue
+        .as_ref()
+        .map(|parent| fetch_parent_child_issues(&repo, parent, runner))
+        .unwrap_or_default();
+    let method_state = load_method_state_json(&cmd.method_state)?;
+
+    Ok(PrReadinessSnapshot {
+        repository: repo,
+        pull_request,
+        linked_issue,
+        parent_issue,
+        child_issues,
+        method_state: Some(method_state),
+        allowed_paths,
+    })
+}
+
+fn resolve_pr_number(repo: &str, pr: Option<u64>, runner: &dyn GhRunner) -> anyhow::Result<u64> {
+    if let Some(pr) = pr {
+        return Ok(pr);
+    }
+
+    let args = ["pr", "view", "--repo", repo, "--json", "number"];
+    let pr: GhPrNumber = run_gh_json(runner, &args, "resolve pull request")?;
+    Ok(pr.number)
+}
+
+fn fetch_github_pr(
+    repo: &str,
+    pr_number: u64,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<PullRequestSnapshot> {
+    let number = pr_number.to_string();
+    let args = [
+        "pr",
+        "view",
+        number.as_str(),
+        "--repo",
+        repo,
+        "--json",
+        "number,title,body,headRefOid,headRefName,baseRefName,files",
+    ];
+    let pr: GhPr = run_gh_json(runner, &args, "load pull request")?;
+    Ok(pr.into_snapshot())
+}
+
+fn fetch_parent_child_issues(
+    repo: &str,
+    parent: &IssueSnapshot,
+    runner: &dyn GhRunner,
+) -> Vec<IssueSnapshot> {
+    let mut children = Vec::new();
+    let mut seen = BTreeSet::new();
+    for child_ref in parse_parent_child_refs(&parent.body) {
+        if !seen.insert(child_ref.issue_number) {
+            continue;
+        }
+        if let Ok(child) = fetch_github_issue(repo, child_ref.issue_number, runner) {
+            children.push(child);
+        }
+    }
+    children
+}
+
+fn load_method_state_json(path: &PathBuf) -> anyhow::Result<MethodState> {
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to read method-state JSON {}: {error}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&text).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to parse method-state JSON {}: {error}",
+            path.display()
+        )
+    })
+}
+
+fn format_pr_readiness_report_human(report: &PrReadinessReport) -> String {
+    let status = if report.valid { "ready" } else { "not ready" };
+    let issue = report
+        .linked_issue_number
+        .map(|number| format!("#{number}"))
+        .unwrap_or_else(|| "none".to_string());
+    let mut output = format!(
+        "PR #{}: {status}\nLinked issue: {issue}\nChanged files: {}\n",
+        report.pr_number, report.changed_file_count
+    );
+
+    if report.findings.is_empty() {
+        output.push_str("No findings.\n");
+        return output;
+    }
+
+    for finding in &report.findings {
+        let severity = match finding.severity {
+            FindingSeverity::Error => "error",
+            FindingSeverity::Warning => "warning",
+        };
+        let subject = finding.subject.as_deref().unwrap_or("pr");
+        output.push_str(&format!(
+            "[{severity}] {subject} {}: {}\n  fix: {}\n",
+            finding.code, finding.message, finding.remediation
+        ));
+    }
+
+    output
+}
+
 fn validate_issue_train_from_github(
     cmd: &IssueTrainValidateCommand,
     runner: &dyn GhRunner,
@@ -1831,6 +2040,45 @@ impl GhIssue {
             },
             body: self.body.unwrap_or_default(),
             labels: self.labels.into_iter().map(|label| label.name).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GhPrNumber {
+    number: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhPrFile {
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhPr {
+    number: u64,
+    title: String,
+    body: Option<String>,
+    #[serde(rename = "headRefOid")]
+    head_ref_oid: String,
+    #[serde(rename = "headRefName")]
+    head_ref_name: String,
+    #[serde(rename = "baseRefName")]
+    base_ref_name: String,
+    #[serde(default)]
+    files: Vec<GhPrFile>,
+}
+
+impl GhPr {
+    fn into_snapshot(self) -> PullRequestSnapshot {
+        PullRequestSnapshot {
+            number: self.number,
+            title: self.title,
+            body: self.body.unwrap_or_default(),
+            head_sha: self.head_ref_oid,
+            base_ref: self.base_ref_name,
+            head_ref: self.head_ref_name,
+            changed_files: self.files.into_iter().map(|file| file.path).collect(),
         }
     }
 }
@@ -3662,6 +3910,174 @@ mod tests {
     }
 
     #[test]
+    fn pr_readiness_validate_parses_flags() {
+        let cli = MultitoolCli::try_parse_from([
+            "aegis",
+            "pr-readiness",
+            "validate",
+            "--repo",
+            "owner/repo",
+            "--pr",
+            "7",
+            "--method-state",
+            "/tmp/method-state.json",
+            "--allowed-path",
+            "codex-rs/core",
+            "--json",
+        ])
+        .expect("parse should succeed");
+
+        let Some(Subcommand::PrReadiness(PrReadinessCommand { subcommand })) = cli.subcommand
+        else {
+            panic!("expected pr-readiness subcommand");
+        };
+        let PrReadinessSubcommand::Validate(cmd) = subcommand;
+        assert_eq!(cmd.repo.as_deref(), Some("owner/repo"));
+        assert_eq!(cmd.pr, Some(7));
+        assert_eq!(cmd.method_state, PathBuf::from("/tmp/method-state.json"));
+        assert_eq!(cmd.allowed_paths, vec!["codex-rs/core"]);
+        assert!(cmd.json);
+    }
+
+    #[test]
+    fn pr_readiness_validate_uses_fake_gh_for_defaults() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let method_state_path = tempdir.path().join("method-state.json");
+        std::fs::write(&method_state_path, pr_method_state_json("abc123"))
+            .expect("write method state");
+        let pr_body = "## Summary\n\nReady.\n\n## Allowed Paths\n\n- codex-rs/core\n\n## Issue\n\nFixes #20\n";
+        let pr_json = serde_json::json!({
+            "number": 7,
+            "title": "Add PR readiness",
+            "body": pr_body,
+            "headRefOid": "abc123",
+            "headRefName": "task-20",
+            "baseRefName": "master",
+            "files": [{ "path": "codex-rs/core/src/pr_readiness.rs" }]
+        })
+        .to_string();
+        let parent_body = "## Objective\n\nCoordinate work.\n\n## Child Issues\n\n- [ ] #20 Implement PR readiness validator\n\n## Evidence Required For Closure\n\nReconcile children.\n";
+        let parent_json = serde_json::json!({
+            "number": 1,
+            "title": "Plan: Aegis Code",
+            "state": "OPEN",
+            "body": parent_body,
+            "labels": [{ "name": "aegis-code:plan" }]
+        })
+        .to_string();
+        let child_json = serde_json::json!({
+            "number": 20,
+            "title": "Task: Implement PR readiness validator",
+            "state": "OPEN",
+            "body": task_issue_body(),
+            "labels": [{ "name": "aegis-code:task" }]
+        })
+        .to_string();
+        let runner = FakeGhRunner::new()
+            .with_success(
+                &["repo", "view", "--json", "nameWithOwner"],
+                r#"{"nameWithOwner":"owner/repo"}"#,
+            )
+            .with_success(
+                &["pr", "view", "--repo", "owner/repo", "--json", "number"],
+                r#"{"number":7}"#,
+            )
+            .with_success(
+                &[
+                    "pr",
+                    "view",
+                    "7",
+                    "--repo",
+                    "owner/repo",
+                    "--json",
+                    "number,title,body,headRefOid,headRefName,baseRefName,files",
+                ],
+                &pr_json,
+            )
+            .with_success(
+                &[
+                    "issue",
+                    "view",
+                    "20",
+                    "--repo",
+                    "owner/repo",
+                    "--json",
+                    "number,title,state,body,labels",
+                ],
+                &child_json,
+            )
+            .with_success(
+                &[
+                    "issue",
+                    "list",
+                    "--repo",
+                    "owner/repo",
+                    "--state",
+                    "open",
+                    "--label",
+                    "aegis-code:plan",
+                    "--json",
+                    "number",
+                    "--limit",
+                    "50",
+                ],
+                r#"[{"number":1}]"#,
+            )
+            .with_success(
+                &[
+                    "issue",
+                    "view",
+                    "1",
+                    "--repo",
+                    "owner/repo",
+                    "--json",
+                    "number,title,state,body,labels",
+                ],
+                &parent_json,
+            );
+        let cmd = PrReadinessValidateCommand {
+            repo: None,
+            pr: None,
+            method_state: method_state_path,
+            allowed_paths: Vec::new(),
+            json: true,
+        };
+
+        let report = validate_pr_readiness_from_github(&cmd, &runner)
+            .expect("fake gh should provide a valid PR readiness snapshot");
+
+        assert!(report.valid, "{report:#?}");
+        assert_eq!(report.pr_number, 7);
+        assert_eq!(report.linked_issue_number, Some(20));
+        assert_eq!(report.changed_file_count, 1);
+    }
+
+    #[test]
+    fn pr_readiness_report_json_contains_expected_fields() {
+        let report = PrReadinessReport {
+            valid: false,
+            pr_number: 7,
+            linked_issue_number: Some(20),
+            changed_file_count: 1,
+            findings: vec![codex_core::pr_readiness::PrReadinessFinding {
+                severity: FindingSeverity::Error,
+                code: "missing_method_state".to_string(),
+                subject: Some("pr:7".to_string()),
+                message: "missing".to_string(),
+                remediation: "provide method state".to_string(),
+            }],
+        };
+
+        let value = serde_json::to_value(&report).expect("serialize report");
+
+        assert_eq!(value["valid"], false);
+        assert_eq!(value["pr_number"], 7);
+        assert_eq!(value["linked_issue_number"], 20);
+        assert_eq!(value["changed_file_count"], 1);
+        assert_eq!(value["findings"][0]["code"], "missing_method_state");
+    }
+
+    #[test]
     fn context_pack_promote_parses_evidence_and_actor() {
         let cli = MultitoolCli::try_parse_from([
             "aegis",
@@ -3750,6 +4166,101 @@ mod tests {
             .to_overrides()
             .expect_err("feature should be rejected");
         assert_eq!(err.to_string(), "Unknown feature flag: does_not_exist");
+    }
+
+    fn task_issue_body() -> &'static str {
+        "## Objective\n\nShip PR readiness.\n\n## Scope\n\nValidate PR readiness.\n\n## Acceptance Criteria\n\n- Valid PRs pass.\n\n## Falsifiers\n\n- Invalid PRs pass.\n\n## Dependencies\n\nNone\n"
+    }
+
+    fn pr_method_state_json(commit: &str) -> String {
+        serde_json::json!({
+            "schema_version": 1,
+            "intent": {
+                "summary": "Ship PR readiness validator",
+                "success_criteria": ["PR readiness is validated"]
+            },
+            "linked_issue": {
+                "provider": "git_hub",
+                "repository": "owner/repo",
+                "number": 20,
+                "title": "Task: Implement PR readiness validator"
+            },
+            "status": "closed",
+            "claims": [],
+            "assumptions": [],
+            "falsifiers": [{
+                "id": "falsifier:missing-linkage",
+                "summary": "PR can pass with no linked task issue",
+                "status": "disproved",
+                "evidence_ids": ["evidence:test"]
+            }],
+            "evidence_requirements": [{
+                "id": "requirement:test",
+                "summary": "Tests pass",
+                "required": true,
+                "commands": ["cargo test -p codex-core pr_readiness"],
+                "claim_ids": [],
+                "falsifier_ids": ["falsifier:missing-linkage"]
+            }],
+            "evidence": [{
+                "id": "evidence:test",
+                "summary": "Tests passed",
+                "kind": "test",
+                "requirement_ids": ["requirement:test"],
+                "claim_ids": [],
+                "falsifier_ids": ["falsifier:missing-linkage"],
+                "source": "test",
+                "captured_at_unix_seconds": 1,
+                "receipt": {
+                    "schema_version": 1,
+                    "command": ["cargo", "test"],
+                    "cwd": "/repo",
+                    "captured_at_unix_seconds": 1,
+                    "git_state": {
+                        "status": "captured",
+                        "repository": "owner/repo",
+                        "branch": "task-20",
+                        "commit": commit,
+                        "dirty": false
+                    },
+                    "exit_status": {
+                        "exit_code": 0,
+                        "timed_out": false
+                    },
+                    "output_summary": "ok",
+                    "artifacts": [],
+                    "session": {
+                        "session_id": "session",
+                        "thread_id": "thread",
+                        "provider": "test",
+                        "model": "test"
+                    },
+                    "redaction_status": "not_needed"
+                }
+            }],
+            "gates": [],
+            "review_findings": [],
+            "closure": {
+                "closed_at_unix_seconds": 2,
+                "summary": "Ready",
+                "evidence_ids": ["evidence:test"],
+                "review_finding_ids": [],
+                "closed_by": "tester"
+            },
+            "resume_context": {
+                "repository": "owner/repo",
+                "branch": "task-20",
+                "commit": commit,
+                "schema_version": 1
+            },
+            "provenance": {
+                "created_at_unix_seconds": 1,
+                "updated_at_unix_seconds": 2,
+                "source": "agent",
+                "actor": "tester"
+            }
+        })
+        .to_string()
     }
 
     struct FakeGhRunner {

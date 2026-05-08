@@ -4,6 +4,10 @@
 ## Test Plan
 
 
+## Allowed Paths
+
+-
+
 ## Issue
 
 Fixes #
