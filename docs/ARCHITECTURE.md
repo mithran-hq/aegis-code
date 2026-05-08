@@ -79,6 +79,9 @@ aegis -> structured events -> aegis-daemon -> alerts/intelligence
 Runtime events can warn the current session, but persistent instruction changes
 apply only after promotion and only at a new session or resume boundary.
 
+The v1 event contract is defined in
+[Aegis Runtime Events](aegis-runtime-events.md).
+
 ## Sensitive Tools
 
 Aegis Code should mediate configured sensitive commands through Aegis Secret

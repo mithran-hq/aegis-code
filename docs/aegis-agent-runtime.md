@@ -35,3 +35,6 @@ The adapter also accepts an interim `aegis/runtime/checkpoint` notification:
 
 For now, checkpoints are surfaced as user-visible warning notifications. The
 stable checkpoint/event shape belongs to the runtime event schema work.
+
+The durable Aegis Code event mapping is defined in
+[Aegis Runtime Events](aegis-runtime-events.md).
