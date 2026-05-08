@@ -102,3 +102,5 @@ gated and preserves native execution as the default.
 The first provider contract should preserve upstream OpenAI-compatible behavior.
 Native Anthropic support is a first-class track because provider-native prompt
 caching and tool semantics matter for production cost and correctness.
+The current provider seams and native Anthropic gaps are documented in
+[Provider Abstraction Review](provider-abstraction-review.md).
