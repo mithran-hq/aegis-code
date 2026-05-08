@@ -32,6 +32,13 @@ use codex_core::context_packs::inspect_context_pack_path;
 use codex_core::context_packs::promote_context_pack;
 use codex_core::context_packs::retire_context_pack;
 use codex_core::context_packs::rollback_context_pack;
+use codex_core::issue_train::FindingSeverity;
+use codex_core::issue_train::IssueSnapshot;
+use codex_core::issue_train::IssueState;
+use codex_core::issue_train::IssueTrainReport;
+use codex_core::issue_train::IssueTrainSnapshot;
+use codex_core::issue_train::parse_parent_child_refs;
+use codex_core::issue_train::validate_issue_train;
 use codex_exec::Cli as ExecCli;
 use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
@@ -48,6 +55,9 @@ use codex_tui::UpdateAction;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
 use owo_colors::OwoColorize;
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
@@ -152,6 +162,9 @@ enum Subcommand {
     /// Inspect local configuration and context pack status.
     Doctor(DoctorCommand),
 
+    /// Validate parent-plan and child-task GitHub issue trains.
+    IssueTrain(IssueTrainCommand),
+
     /// Manage configured context-pack lifecycle state.
     ContextPack(ContextPackCommand),
 
@@ -219,6 +232,34 @@ struct CompletionCommand {
 
 #[derive(Debug, Parser)]
 struct DoctorCommand {
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Parser)]
+#[command(bin_name = "aegis issue-train")]
+struct IssueTrainCommand {
+    #[command(subcommand)]
+    subcommand: IssueTrainSubcommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum IssueTrainSubcommand {
+    /// Validate parent-plan and child-task issue readiness.
+    Validate(IssueTrainValidateCommand),
+}
+
+#[derive(Debug, Clone, Parser)]
+struct IssueTrainValidateCommand {
+    /// GitHub repository in OWNER/REPO form. Defaults to the current repository.
+    #[arg(long)]
+    repo: Option<String>,
+
+    /// Parent plan issue number. Defaults to the single open issue labeled aegis-code:plan.
+    #[arg(long)]
+    parent: Option<u64>,
+
     /// Emit machine-readable JSON.
     #[arg(long)]
     json: bool,
@@ -1253,6 +1294,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             run_doctor_command(cmd, root_config_overrides, interactive).await?;
         }
+        Some(Subcommand::IssueTrain(cmd)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "issue-train",
+            )?;
+            run_issue_train_command(cmd)?;
+        }
         Some(Subcommand::ContextPack(cmd)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1553,6 +1602,237 @@ async fn run_doctor_command(
     }
 
     Ok(())
+}
+
+fn run_issue_train_command(cmd: IssueTrainCommand) -> anyhow::Result<()> {
+    match cmd.subcommand {
+        IssueTrainSubcommand::Validate(cmd) => {
+            let runner = ProcessGhRunner;
+            let report = validate_issue_train_from_github(&cmd, &runner)?;
+            if cmd.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", format_issue_train_report_human(&report));
+            }
+
+            if !report.valid {
+                std::process::exit(1);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_issue_train_from_github(
+    cmd: &IssueTrainValidateCommand,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<IssueTrainReport> {
+    let snapshot = load_issue_train_snapshot(cmd, runner)?;
+    Ok(validate_issue_train(&snapshot))
+}
+
+fn load_issue_train_snapshot(
+    cmd: &IssueTrainValidateCommand,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<IssueTrainSnapshot> {
+    let repo = resolve_github_repo(cmd.repo.as_deref(), runner)?;
+    let parent_number = resolve_parent_issue_number(&repo, cmd.parent, runner)?;
+    let parent = fetch_github_issue(&repo, parent_number, runner)?;
+    let mut children = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for child_ref in parse_parent_child_refs(&parent.body) {
+        if !seen.insert(child_ref.issue_number) {
+            continue;
+        }
+        if let Ok(child) = fetch_github_issue(&repo, child_ref.issue_number, runner) {
+            children.push(child);
+        }
+    }
+
+    Ok(IssueTrainSnapshot { parent, children })
+}
+
+fn resolve_github_repo(repo: Option<&str>, runner: &dyn GhRunner) -> anyhow::Result<String> {
+    if let Some(repo) = repo {
+        return Ok(repo.to_string());
+    }
+
+    let output: GhRepoView = run_gh_json(
+        runner,
+        &["repo", "view", "--json", "nameWithOwner"],
+        "resolve repo",
+    )?;
+    Ok(output.name_with_owner)
+}
+
+fn resolve_parent_issue_number(
+    repo: &str,
+    parent: Option<u64>,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<u64> {
+    if let Some(parent) = parent {
+        return Ok(parent);
+    }
+
+    let args = [
+        "issue",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--label",
+        codex_core::issue_train::PLAN_LABEL,
+        "--json",
+        "number",
+        "--limit",
+        "50",
+    ];
+    let plans: Vec<GhIssueListItem> = run_gh_json(runner, &args, "find parent plan issue")?;
+    match plans.as_slice() {
+        [plan] => Ok(plan.number),
+        [] => anyhow::bail!(
+            "no open parent plan issue found; pass --parent or label exactly one open issue with {}",
+            codex_core::issue_train::PLAN_LABEL
+        ),
+        _ => anyhow::bail!(
+            "multiple open parent plan issues found; pass --parent to choose one explicitly"
+        ),
+    }
+}
+
+fn fetch_github_issue(
+    repo: &str,
+    issue_number: u64,
+    runner: &dyn GhRunner,
+) -> anyhow::Result<IssueSnapshot> {
+    let number = issue_number.to_string();
+    let args = [
+        "issue",
+        "view",
+        number.as_str(),
+        "--repo",
+        repo,
+        "--json",
+        "number,title,state,body,labels",
+    ];
+    let issue: GhIssue = run_gh_json(runner, &args, "load issue")?;
+    Ok(issue.into_snapshot())
+}
+
+fn run_gh_json<T: DeserializeOwned>(
+    runner: &dyn GhRunner,
+    args: &[&str],
+    context: &str,
+) -> anyhow::Result<T> {
+    let args = args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
+    let output = runner.run(&args)?;
+    if !output.success {
+        anyhow::bail!("gh failed to {context}: {}", output.stderr.trim());
+    }
+    serde_json::from_str(&output.stdout)
+        .map_err(|error| anyhow::anyhow!("failed to parse gh JSON for {context}: {error}"))
+}
+
+fn format_issue_train_report_human(report: &IssueTrainReport) -> String {
+    let status = if report.valid { "ready" } else { "not ready" };
+    let mut output = format!(
+        "Issue train #{}: {status}\nChild issues: {}\n",
+        report.parent_issue, report.child_count
+    );
+
+    if report.findings.is_empty() {
+        output.push_str("No findings.\n");
+        return output;
+    }
+
+    for finding in &report.findings {
+        let severity = match finding.severity {
+            FindingSeverity::Error => "error",
+            FindingSeverity::Warning => "warning",
+        };
+        let issue = finding
+            .issue_number
+            .map(|number| format!("#{number}"))
+            .unwrap_or_else(|| "train".to_string());
+        output.push_str(&format!(
+            "[{severity}] {issue} {}: {}\n  fix: {}\n",
+            finding.code, finding.message, finding.remediation
+        ));
+    }
+
+    output
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GhOutput {
+    stdout: String,
+    stderr: String,
+    success: bool,
+}
+
+trait GhRunner {
+    fn run(&self, args: &[String]) -> anyhow::Result<GhOutput>;
+}
+
+struct ProcessGhRunner;
+
+impl GhRunner for ProcessGhRunner {
+    fn run(&self, args: &[String]) -> anyhow::Result<GhOutput> {
+        let output = ProcessCommand::new("gh").args(args).output()?;
+        Ok(GhOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            success: output.status.success(),
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GhRepoView {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhIssueListItem {
+    number: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhLabel {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhIssue {
+    number: u64,
+    title: String,
+    state: String,
+    body: Option<String>,
+    #[serde(default)]
+    labels: Vec<GhLabel>,
+}
+
+impl GhIssue {
+    fn into_snapshot(self) -> IssueSnapshot {
+        IssueSnapshot {
+            number: self.number,
+            title: self.title,
+            state: if self.state.eq_ignore_ascii_case("closed") {
+                IssueState::Closed
+            } else {
+                IssueState::Open
+            },
+            body: self.body.unwrap_or_default(),
+            labels: self.labels.into_iter().map(|label| label.name).collect(),
+        }
+    }
 }
 
 async fn run_context_pack_command(
@@ -3256,6 +3536,132 @@ mod tests {
     }
 
     #[test]
+    fn issue_train_validate_parses_repo_parent_and_json() {
+        let cli = MultitoolCli::try_parse_from([
+            "aegis",
+            "issue-train",
+            "validate",
+            "--repo",
+            "owner/repo",
+            "--parent",
+            "7",
+            "--json",
+        ])
+        .expect("parse should succeed");
+
+        let Some(Subcommand::IssueTrain(IssueTrainCommand { subcommand })) = cli.subcommand else {
+            panic!("expected issue-train subcommand");
+        };
+        let IssueTrainSubcommand::Validate(cmd) = subcommand;
+        assert_eq!(cmd.repo.as_deref(), Some("owner/repo"));
+        assert_eq!(cmd.parent, Some(7));
+        assert!(cmd.json);
+    }
+
+    #[test]
+    fn issue_train_validate_uses_fake_gh_for_defaults() {
+        let parent_body = "## Objective\n\nCoordinate work.\n\n## Child Issues\n\n- [ ] #2 Implement validator\n\n## Evidence Required For Closure\n\nReconcile child state.\n";
+        let child_body = "## Objective\n\nShip an issue train validator.\n\n## Scope\n\nValidate issue train readiness.\n\n## Acceptance Criteria\n\n- Ready trains pass.\n\n## Falsifiers\n\n- Vague issues pass.\n\n## Dependencies\n\nNone\n";
+        let parent_json = serde_json::json!({
+            "number": 1,
+            "title": "Plan: Method workflow",
+            "state": "OPEN",
+            "body": parent_body,
+            "labels": [{ "name": "aegis-code:plan" }]
+        })
+        .to_string();
+        let child_json = serde_json::json!({
+            "number": 2,
+            "title": "Task: Implement validator",
+            "state": "OPEN",
+            "body": child_body,
+            "labels": [{ "name": "aegis-code:task" }]
+        })
+        .to_string();
+        let runner = FakeGhRunner::new()
+            .with_success(
+                &["repo", "view", "--json", "nameWithOwner"],
+                r#"{"nameWithOwner":"owner/repo"}"#,
+            )
+            .with_success(
+                &[
+                    "issue",
+                    "list",
+                    "--repo",
+                    "owner/repo",
+                    "--state",
+                    "open",
+                    "--label",
+                    "aegis-code:plan",
+                    "--json",
+                    "number",
+                    "--limit",
+                    "50",
+                ],
+                r#"[{"number":1}]"#,
+            )
+            .with_success(
+                &[
+                    "issue",
+                    "view",
+                    "1",
+                    "--repo",
+                    "owner/repo",
+                    "--json",
+                    "number,title,state,body,labels",
+                ],
+                &parent_json,
+            )
+            .with_success(
+                &[
+                    "issue",
+                    "view",
+                    "2",
+                    "--repo",
+                    "owner/repo",
+                    "--json",
+                    "number,title,state,body,labels",
+                ],
+                &child_json,
+            );
+        let cmd = IssueTrainValidateCommand {
+            repo: None,
+            parent: None,
+            json: true,
+        };
+
+        let report = validate_issue_train_from_github(&cmd, &runner)
+            .expect("fake gh should provide a valid issue train");
+
+        assert!(report.valid, "{report:#?}");
+        assert_eq!(report.parent_issue, 1);
+        assert_eq!(report.child_count, 1);
+    }
+
+    #[test]
+    fn issue_train_report_json_contains_expected_fields() {
+        let report = IssueTrainReport {
+            valid: false,
+            parent_issue: 1,
+            child_count: 0,
+            findings: vec![codex_core::issue_train::IssueTrainFinding {
+                severity: FindingSeverity::Error,
+                code: "parent_missing_child_refs".to_string(),
+                issue_number: Some(1),
+                message: "missing children".to_string(),
+                remediation: "add child refs".to_string(),
+            }],
+        };
+
+        let value = serde_json::to_value(&report).expect("serialize report");
+
+        assert_eq!(value["valid"], false);
+        assert_eq!(value["parent_issue"], 1);
+        assert_eq!(value["child_count"], 0);
+        assert_eq!(value["findings"][0]["code"], "parent_missing_child_refs");
+    }
+
+    #[test]
     fn context_pack_promote_parses_evidence_and_actor() {
         let cli = MultitoolCli::try_parse_from([
             "aegis",
@@ -3344,5 +3750,46 @@ mod tests {
             .to_overrides()
             .expect_err("feature should be rejected");
         assert_eq!(err.to_string(), "Unknown feature flag: does_not_exist");
+    }
+
+    struct FakeGhRunner {
+        outputs: std::collections::BTreeMap<String, GhOutput>,
+        calls: std::cell::RefCell<Vec<Vec<String>>>,
+    }
+
+    impl FakeGhRunner {
+        fn new() -> Self {
+            Self {
+                outputs: std::collections::BTreeMap::new(),
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn with_success(mut self, args: &[&str], stdout: &str) -> Self {
+            self.outputs.insert(
+                args_key(args.iter().copied()),
+                GhOutput {
+                    stdout: stdout.to_string(),
+                    stderr: String::new(),
+                    success: true,
+                },
+            );
+            self
+        }
+    }
+
+    impl GhRunner for FakeGhRunner {
+        fn run(&self, args: &[String]) -> anyhow::Result<GhOutput> {
+            self.calls.borrow_mut().push(args.to_vec());
+            let key = args_key(args.iter().map(String::as_str));
+            self.outputs
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unexpected gh args: {args:?}"))
+        }
+    }
+
+    fn args_key<'a>(args: impl IntoIterator<Item = &'a str>) -> String {
+        args.into_iter().collect::<Vec<_>>().join("\u{0}")
     }
 }
