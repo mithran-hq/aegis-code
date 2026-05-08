@@ -91,6 +91,11 @@ use crate::mcp_cmd::McpCli;
 use codex_core::build_models_manager;
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
+use codex_core::config::codex_import::CodexConfigImportOptions;
+use codex_core::config::codex_import::CodexConfigImportReport;
+use codex_core::config::codex_import::apply_codex_config_import;
+use codex_core::config::codex_import::default_codex_config_path;
+use codex_core::config::codex_import::preview_codex_config_import;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::find_codex_home;
@@ -176,6 +181,9 @@ enum Subcommand {
     /// Inspect local configuration and context pack status.
     Doctor(DoctorCommand),
 
+    /// Manage Aegis Code configuration.
+    Config(ConfigCommand),
+
     /// Validate parent-plan and child-task GitHub issue trains.
     IssueTrain(IssueTrainCommand),
 
@@ -249,6 +257,42 @@ struct CompletionCommand {
 
 #[derive(Debug, Parser)]
 struct DoctorCommand {
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Parser)]
+#[command(bin_name = "aegis config")]
+struct ConfigCommand {
+    #[command(subcommand)]
+    subcommand: ConfigSubcommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ConfigSubcommand {
+    /// Preview or import safe settings from a Codex config.toml.
+    ImportCodex(ConfigImportCodexCommand),
+}
+
+#[derive(Debug, Parser)]
+struct ConfigImportCodexCommand {
+    /// Source Codex config.toml. Defaults to ~/.codex/config.toml.
+    #[arg(long = "from", value_name = "PATH")]
+    source: Option<PathBuf>,
+
+    /// Destination Aegis config.toml. Defaults to $AEGIS_HOME/config.toml.
+    #[arg(long = "to", value_name = "PATH")]
+    destination: Option<PathBuf>,
+
+    /// Apply the import. Without this flag, only a preview is printed.
+    #[arg(long)]
+    apply: bool,
+
+    /// Include literal prompt settings. Prompt file paths are never imported.
+    #[arg(long = "include-prompts")]
+    include_prompts: bool,
+
     /// Emit machine-readable JSON.
     #[arg(long)]
     json: bool,
@@ -1380,6 +1424,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             run_doctor_command(cmd, root_config_overrides, interactive).await?;
         }
+        Some(Subcommand::Config(cmd)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "config",
+            )?;
+            run_config_command(cmd)?;
+        }
         Some(Subcommand::IssueTrain(cmd)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1696,6 +1748,81 @@ async fn run_doctor_command(
     }
 
     Ok(())
+}
+
+fn run_config_command(cmd: ConfigCommand) -> anyhow::Result<()> {
+    match cmd.subcommand {
+        ConfigSubcommand::ImportCodex(cmd) => run_config_import_codex_command(cmd)?,
+    }
+    Ok(())
+}
+
+fn run_config_import_codex_command(cmd: ConfigImportCodexCommand) -> anyhow::Result<()> {
+    let codex_home = find_codex_home()?;
+    let source = cmd.source.unwrap_or(default_codex_config_path()?);
+    let destination = cmd.destination.unwrap_or_else(|| {
+        codex_home
+            .join(codex_config::CONFIG_TOML_FILE)
+            .to_path_buf()
+    });
+    let options = CodexConfigImportOptions {
+        source,
+        destination,
+        include_prompts: cmd.include_prompts,
+        apply: cmd.apply,
+    };
+    let report = if cmd.apply {
+        apply_codex_config_import(&options)?
+    } else {
+        preview_codex_config_import(&options)?
+    };
+
+    if cmd.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_config_import_report(&report);
+    }
+
+    Ok(())
+}
+
+fn print_config_import_report(report: &CodexConfigImportReport) {
+    println!("Codex config import");
+    println!("Source: {}", report.source.display());
+    println!("Destination: {}", report.destination.display());
+
+    if !report.source_exists {
+        println!("No Codex config found; no changes to apply.");
+        return;
+    }
+
+    if report.imports.is_empty() {
+        println!("No supported settings to import.");
+    } else {
+        println!("Settings to import:");
+        for entry in &report.imports {
+            println!("  - {}", entry.key_path);
+        }
+    }
+
+    if !report.skipped.is_empty() {
+        println!("Skipped settings:");
+        for entry in &report.skipped {
+            println!("  - {} ({})", entry.key_path, entry.reason);
+        }
+    }
+
+    if report.applied {
+        if report.changed {
+            println!("Applied import to {}.", report.destination.display());
+        } else {
+            println!("No changes were written.");
+        }
+    } else if report.changed {
+        println!("Preview only; re-run with --apply to write these settings.");
+    } else {
+        println!("Preview only; no changes would be written.");
+    }
 }
 
 fn run_issue_train_command(cmd: IssueTrainCommand) -> anyhow::Result<()> {

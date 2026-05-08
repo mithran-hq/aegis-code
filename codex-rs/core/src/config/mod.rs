@@ -26,6 +26,9 @@ use codex_config::ResidencyRequirement;
 use codex_config::SandboxModeRequirement;
 use codex_config::Sourced;
 use codex_config::ThreadConfigLoader;
+use codex_config::config_toml::AegisEngineFailureModeToml;
+use codex_config::config_toml::AegisEngineMirrorToml;
+use codex_config::config_toml::AegisEngineToml;
 use codex_config::config_toml::ConfigLockfileToml;
 use codex_config::config_toml::ConfigToml;
 use codex_config::config_toml::DEFAULT_PROJECT_DOC_MAX_BYTES;
@@ -34,9 +37,6 @@ use codex_config::config_toml::RealtimeAudioConfig;
 use codex_config::config_toml::RealtimeConfig;
 use codex_config::config_toml::ThreadStoreToml;
 use codex_config::config_toml::validate_model_providers;
-use codex_config::config_toml::{
-    AegisEngineFailureModeToml, AegisEngineMirrorToml, AegisEngineToml,
-};
 use codex_config::loader::load_config_layers_state;
 use codex_config::loader::project_trust_key;
 use codex_config::profile_toml::ConfigProfile;
@@ -141,6 +141,7 @@ use toml::Value as TomlValue;
 use toml_edit::DocumentMut;
 
 pub(crate) mod agent_roles;
+pub mod codex_import;
 pub mod edit;
 mod managed_features;
 mod network_proxy_spec;

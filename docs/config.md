@@ -6,6 +6,39 @@ For advanced configuration instructions, see [this documentation](https://develo
 
 For a full configuration reference, see [this documentation](https://developers.openai.com/codex/config-reference).
 
+## Importing Codex config
+
+Aegis Code uses `$AEGIS_HOME/config.toml`, defaulting to
+`~/.aegis/config.toml`. It does not write to `~/.codex/config.toml` during
+normal startup.
+
+To migrate safe settings from an existing Codex config, preview the import:
+
+```bash
+aegis config import-codex
+```
+
+The command reads `~/.codex/config.toml` by default and prints the settings it
+would add to `~/.aegis/config.toml`. It does not write anything unless
+`--apply` is provided:
+
+```bash
+aegis config import-codex --apply
+```
+
+Only limited preferences are imported: model selection, provider references,
+sanitized custom provider definitions, profiles, sandbox and permission
+preferences, UI/tool preferences, and similar non-secret settings. Literal
+secrets are skipped, including bearer tokens, command-backed auth blocks, static
+HTTP headers, query parameters, and secret-looking key paths. Provider
+environment variable names such as `env_key` may be imported because they do not
+contain the secret value.
+
+Prompt text is skipped by default. Use `--include-prompts` to import literal
+prompt strings after reviewing the preview. Prompt file paths are not imported.
+Use `--from <PATH>`, `--to <PATH>`, or `--json` for scripted migrations and
+tests.
+
 ## Context packs
 
 Context packs are loaded only from explicit TOML paths configured in
