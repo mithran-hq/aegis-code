@@ -13,6 +13,11 @@ pub fn get_default_model_for_oss_provider(provider_id: &str) -> Option<&'static 
     }
 }
 
+/// Returns true when the provider id names a built-in local OSS provider.
+pub fn is_local_oss_provider(provider_id: &str) -> bool {
+    get_default_model_for_oss_provider(provider_id).is_some()
+}
+
 /// Ensures the specified OSS provider is ready (models downloaded, service reachable).
 pub async fn ensure_oss_provider_ready(
     provider_id: &str,
@@ -57,5 +62,12 @@ mod tests {
     fn test_get_default_model_for_provider_unknown() {
         let result = get_default_model_for_oss_provider("unknown-provider");
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_is_local_oss_provider() {
+        assert!(is_local_oss_provider(LMSTUDIO_OSS_PROVIDER_ID));
+        assert!(is_local_oss_provider(OLLAMA_OSS_PROVIDER_ID));
+        assert!(!is_local_oss_provider("openai"));
     }
 }

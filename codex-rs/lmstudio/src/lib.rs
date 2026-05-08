@@ -2,9 +2,10 @@ mod client;
 
 pub use client::LMStudioClient;
 use codex_core::config::Config;
+use codex_model_provider_info::LMSTUDIO_DEFAULT_OSS_MODEL;
 
 /// Default OSS model to use when `--oss` is passed without an explicit `-m`.
-pub const DEFAULT_OSS_MODEL: &str = "openai/gpt-oss-20b";
+pub const DEFAULT_OSS_MODEL: &str = LMSTUDIO_DEFAULT_OSS_MODEL;
 
 /// Prepare the local OSS environment when `--oss` is selected.
 ///

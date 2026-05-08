@@ -57,6 +57,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::canonicalize_existing_preserving_symlinks;
 use codex_utils_oss::ensure_oss_provider_ready;
 use codex_utils_oss::get_default_model_for_oss_provider;
+use codex_utils_oss::is_local_oss_provider;
 use color_eyre::eyre::WrapErr;
 use cwd_prompt::CwdPromptAction;
 use std::fs::OpenOptions;
@@ -1003,19 +1004,8 @@ pub async fn run_main(
     let feedback_layer = feedback.logger_layer();
     let feedback_metadata_layer = feedback.metadata_layer();
 
-    if cli.oss && model_provider_override.is_some() {
-        // We're in the oss section, so provider_id should be Some
-        // Let's handle None case gracefully though just in case
-        let provider_id = match model_provider_override.as_ref() {
-            Some(id) => id,
-            None => {
-                error!("OSS provider unexpectedly not set when oss flag is used");
-                return Err(std::io::Error::other(
-                    "OSS provider not set but oss flag was used",
-                ));
-            }
-        };
-        ensure_oss_provider_ready(provider_id, &config).await?;
+    if is_local_oss_provider(&config.model_provider_id) {
+        ensure_oss_provider_ready(&config.model_provider_id, &config).await?;
     }
 
     let otel = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

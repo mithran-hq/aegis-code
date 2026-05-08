@@ -6,6 +6,7 @@ mod url;
 pub use client::OllamaClient;
 use codex_core::config::Config;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::OLLAMA_DEFAULT_OSS_MODEL;
 pub use pull::CliProgressReporter;
 pub use pull::PullEvent;
 pub use pull::PullProgressReporter;
@@ -13,7 +14,7 @@ pub use pull::TuiProgressReporter;
 use semver::Version;
 
 /// Default OSS model to use when `--oss` is passed without an explicit `-m`.
-pub const DEFAULT_OSS_MODEL: &str = "gpt-oss:20b";
+pub const DEFAULT_OSS_MODEL: &str = OLLAMA_DEFAULT_OSS_MODEL;
 
 /// Prepare the local OSS environment when `--oss` is selected.
 ///

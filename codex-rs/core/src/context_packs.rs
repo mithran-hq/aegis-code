@@ -57,6 +57,15 @@ impl ContextPackSet {
             .flat_map(|pack| pack.evidence_requirements.iter().cloned())
             .collect()
     }
+
+    pub(crate) fn active_provider_default_candidates(
+        &self,
+    ) -> Vec<ContextPackProviderDefaultCandidate> {
+        self.active_packs
+            .iter()
+            .flat_map(|pack| pack.provider_default_candidates())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -122,6 +131,7 @@ pub struct ContextPackInspection {
     pub rollback: Option<RollbackInspection>,
     pub provenance: Option<ProvenanceInspection>,
     pub evidence_requirements: Vec<EvidenceRequirementInspection>,
+    pub provider_defaults: Option<ProviderDefaultsInspection>,
     pub guidance: Option<Vec<GuidanceInspection>>,
 }
 
@@ -156,6 +166,12 @@ pub struct EvidenceRequirementInspection {
     pub id: String,
     pub description: String,
     pub commands: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderDefaultsInspection {
+    pub preferred: Option<String>,
+    pub fallbacks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -206,12 +222,37 @@ pub(crate) struct ContextPackGuidanceLayer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContextPackProviderDefaultCandidate {
+    pub(crate) path: AbsolutePathBuf,
+    pub(crate) pack_id: String,
+    pub(crate) kind: ContextPackKind,
+    pub(crate) provider_id: String,
+    pub(crate) field: ContextPackProviderDefaultField,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextPackProviderDefaultField {
+    Preferred,
+    Fallback,
+}
+
+impl ContextPackProviderDefaultField {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Preferred => "preferred",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct LoadedContextPack {
     path: AbsolutePathBuf,
     pack_id: String,
     kind: ContextPackKind,
     guidance: Vec<GuidanceToml>,
     evidence_requirements: Vec<EvidenceRequirementInspection>,
+    provider_defaults: Option<ProviderDefaultsToml>,
 }
 
 impl LoadedContextPack {
@@ -222,6 +263,58 @@ impl LoadedContextPack {
             .filter(|text| !text.is_empty())
             .collect::<Vec<_>>()
             .join("\n\n")
+    }
+
+    fn provider_default_candidates(&self) -> Vec<ContextPackProviderDefaultCandidate> {
+        let Some(provider_defaults) = &self.provider_defaults else {
+            return Vec::new();
+        };
+
+        let mut candidates = Vec::new();
+        if let Some(preferred) = provider_defaults
+            .preferred
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            candidates.push(
+                self.provider_default_candidate(
+                    preferred,
+                    ContextPackProviderDefaultField::Preferred,
+                ),
+            );
+        }
+        candidates.extend(
+            provider_defaults
+                .fallbacks
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|fallback| {
+                    self.provider_default_candidate(
+                        fallback,
+                        ContextPackProviderDefaultField::Fallback,
+                    )
+                }),
+        );
+        candidates
+    }
+
+    fn provider_default_candidate(
+        &self,
+        provider_id: &str,
+        field: ContextPackProviderDefaultField,
+    ) -> ContextPackProviderDefaultCandidate {
+        ContextPackProviderDefaultCandidate {
+            path: self.path.clone(),
+            pack_id: self.pack_id.clone(),
+            kind: self.kind,
+            provider_id: provider_id.to_string(),
+            field,
+        }
     }
 }
 
@@ -630,6 +723,10 @@ fn inspection_from_pack(
                 source_refs: provenance.source_refs.clone().unwrap_or_default(),
             }),
         evidence_requirements: evidence_requirements_from_pack(pack),
+        provider_defaults: pack
+            .provider_defaults
+            .as_ref()
+            .map(provider_defaults_inspection),
         guidance: show_guidance.then(|| {
             pack.guidance
                 .iter()
@@ -641,6 +738,29 @@ fn inspection_from_pack(
                 })
                 .collect()
         }),
+    }
+}
+
+fn provider_defaults_inspection(
+    provider_defaults: &ProviderDefaultsToml,
+) -> ProviderDefaultsInspection {
+    ProviderDefaultsInspection {
+        preferred: provider_defaults
+            .preferred
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string),
+        fallbacks: provider_defaults
+            .fallbacks
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect(),
     }
 }
 
@@ -859,6 +979,7 @@ async fn load_one_context_pack(
                 kind: pack.kind,
                 guidance: pack.guidance.clone(),
                 evidence_requirements: evidence_requirements_from_pack(&pack),
+                provider_defaults: pack.provider_defaults.clone(),
             };
             Ok(LoadedPackOutcome::Active {
                 diagnostic: ContextPackDiagnostic {
@@ -982,6 +1103,17 @@ fn validate_pack(pack: &ContextPackToml) -> Vec<String> {
                     require_optional_nonempty("rollback.reason", &rollback.reason, &mut errors);
                 }
                 None => errors.push("promoted learned packs require rollback metadata".to_string()),
+            }
+        }
+    }
+
+    if let Some(provider_defaults) = &pack.provider_defaults {
+        if let Some(preferred) = &provider_defaults.preferred {
+            require_nonempty("provider_defaults.preferred", preferred, &mut errors);
+        }
+        if let Some(fallbacks) = &provider_defaults.fallbacks {
+            for fallback in fallbacks {
+                require_nonempty("provider_defaults.fallbacks", fallback, &mut errors);
             }
         }
     }
@@ -1178,7 +1310,7 @@ struct ReviewerChecksToml {
     required: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 struct ProviderDefaultsToml {

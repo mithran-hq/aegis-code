@@ -114,7 +114,7 @@ required = ["adversarial-review", "issue-reconciliation"]
 
 [provider_defaults]
 preferred = "openai"
-fallbacks = ["local"]
+fallbacks = ["ollama"]
 
 [provenance]
 author = "project-maintainer"
@@ -163,8 +163,10 @@ or broker references instead.
 
 `reviewer_checks` names review gates that should be run before closure.
 
-`provider_defaults` captures preferred and fallback provider families. It is
-policy input, not a runtime credential source.
+`provider_defaults` captures preferred and fallback provider ids such as
+`openai`, `anthropic`, `ollama`, `lmstudio`, or a custom key from
+`model_providers`. Family aliases such as `local` are not valid provider ids.
+It is policy input, not a runtime credential source.
 
 `provenance` is required for learned packs and recommended for every pack. It
 records who or what produced the pack, when, and from which source.
@@ -283,7 +285,7 @@ required = ["adversarial-review", "issue-reconciliation"]
 
 [provider_defaults]
 preferred = "openai"
-fallbacks = ["local"]
+fallbacks = ["ollama"]
 
 [provenance]
 author = "project-maintainer"

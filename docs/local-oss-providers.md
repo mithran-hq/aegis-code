@@ -20,8 +20,9 @@ lms server start
 aegis --oss --local-provider lmstudio
 ```
 
-If `--local-provider` is omitted, Aegis uses `oss_provider` from the selected
-profile, then the global `oss_provider`, and then prompts in the TUI.
+If `--local-provider` is omitted while using `--oss`, Aegis uses
+`oss_provider` from the selected profile, then the global `oss_provider`, and
+then prompts in the TUI.
 
 ## Configuration
 
@@ -37,6 +38,13 @@ Profiles can choose a different local provider:
 [profiles.local-lmstudio]
 oss_provider = "lmstudio"
 ```
+
+Without `--oss`, local providers can still be selected through the normal
+provider precedence chain: CLI/session `model_provider`, active profile
+`model_provider`, global `model_provider`, promoted context-pack
+`[provider_defaults]`, then `openai`. When the effective provider is `ollama` or
+`lmstudio`, Aegis applies the same local readiness checks and default model even
+if the provider came from config or a context pack.
 
 The built-in local providers have these defaults:
 

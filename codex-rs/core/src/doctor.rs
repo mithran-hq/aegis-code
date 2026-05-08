@@ -1,6 +1,12 @@
 use crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus;
 use crate::config::Config;
+use crate::config::ConfigSelectionSource;
+use crate::config::ProviderPolicyDiagnostic;
 use crate::context_packs::ContextPackDiagnostic;
+use codex_model_provider_info::AMAZON_BEDROCK_DEFAULT_MODEL;
+use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
+use codex_model_provider_info::ANTHROPIC_DEFAULT_MODEL;
+use codex_model_provider_info::ANTHROPIC_PROVIDER_ID;
 use codex_protocol::openai_models::ModelPreset;
 use serde::Serialize;
 
@@ -20,6 +26,9 @@ pub struct ProviderDiagnostic {
     pub id: String,
     pub name: String,
     pub model: String,
+    pub provider_source: ConfigSelectionSource,
+    pub model_source: ConfigSelectionSource,
+    pub provider_policy: Vec<ProviderPolicyDiagnostic>,
     pub wire_api: String,
     pub base_url: Option<String>,
     pub requires_openai_auth: bool,
@@ -55,7 +64,13 @@ fn build_provider_diagnostic(config: &Config) -> ProviderDiagnostic {
     ProviderDiagnostic {
         id: config.model_provider_id.clone(),
         name: config.model_provider.name.clone(),
-        model: config.model.clone().unwrap_or_else(default_model_name),
+        model: config
+            .model
+            .clone()
+            .unwrap_or_else(|| default_model_name_for_provider(&config.model_provider_id)),
+        provider_source: config.model_provider_source.clone(),
+        model_source: config.model_source.clone(),
+        provider_policy: config.provider_policy.clone(),
         wire_api: config.model_provider.wire_api.to_string(),
         base_url: config.model_provider.base_url.clone(),
         requires_openai_auth: config.model_provider.requires_openai_auth,
@@ -65,7 +80,15 @@ fn build_provider_diagnostic(config: &Config) -> ProviderDiagnostic {
     }
 }
 
-fn default_model_name() -> String {
+fn default_model_name_for_provider(provider_id: &str) -> String {
+    match provider_id {
+        ANTHROPIC_PROVIDER_ID => ANTHROPIC_DEFAULT_MODEL.to_string(),
+        AMAZON_BEDROCK_PROVIDER_ID => AMAZON_BEDROCK_DEFAULT_MODEL.to_string(),
+        _ => default_openai_catalog_model_name(),
+    }
+}
+
+fn default_openai_catalog_model_name() -> String {
     let Ok(catalog) = codex_models_manager::bundled_models_response() else {
         return "default".to_string();
     };
@@ -99,6 +122,14 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
         report.provider.id, report.provider.name
     ));
     output.push_str(&format!("  model: {}\n", report.provider.model));
+    output.push_str(&format!(
+        "  provider source: {}\n",
+        selection_source_label(&report.provider.provider_source)
+    ));
+    output.push_str(&format!(
+        "  model source: {}\n",
+        selection_source_label(&report.provider.model_source)
+    ));
     output.push_str(&format!("  wire API: {}\n", report.provider.wire_api));
     output.push_str(&format!(
         "  base URL: {}\n",
@@ -119,6 +150,15 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
             output.push_str(&format!("  env key: {env_key} (missing)\n"));
         }
         _ => output.push_str("  env key: none\n"),
+    }
+    if !report.provider.provider_policy.is_empty() {
+        output.push_str("  provider policy:\n");
+        for policy in &report.provider.provider_policy {
+            output.push_str(&format!(
+                "    - {} {} {} -> {} ({})\n",
+                policy.pack_id, policy.field, policy.provider_id, policy.status, policy.reason
+            ));
+        }
     }
     output.push_str("Aegis Engine alerts:\n");
     let alerts = &report.aegis_engine_alerts;
@@ -161,6 +201,13 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
     }
 
     output
+}
+
+fn selection_source_label(source: &ConfigSelectionSource) -> String {
+    match source.detail.as_deref() {
+        Some(detail) if !detail.is_empty() => format!("{} ({detail})", source.source),
+        _ => source.source.clone(),
+    }
 }
 
 #[cfg(test)]

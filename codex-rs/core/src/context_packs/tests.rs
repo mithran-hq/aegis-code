@@ -153,6 +153,87 @@ async fn candidate_pack_is_visible_but_inactive() {
 }
 
 #[tokio::test]
+async fn promoted_pack_exposes_provider_default_candidates_in_path_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let first = write_pack(
+        &dir,
+        "first.toml",
+        &pack("project", "promoted", "Project guidance").replace(
+            "[provenance]",
+            r#"[provider_defaults]
+preferred = "missing-provider"
+fallbacks = ["anthropic"]
+
+[provenance]"#,
+        ),
+    );
+    let second = write_pack(
+        &dir,
+        "second.toml",
+        &pack("user", "promoted", "User guidance").replace(
+            "[provenance]",
+            r#"[provider_defaults]
+preferred = "openai"
+fallbacks = ["ollama"]
+
+[provenance]"#,
+        ),
+    );
+
+    let set = load(&[first, second]).await;
+    let candidates = set.active_provider_default_candidates();
+
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| (
+                candidate.pack_id.as_str(),
+                candidate.provider_id.as_str(),
+                candidate.field.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("project:example", "missing-provider", "preferred"),
+            ("project:example", "anthropic", "fallback"),
+            ("user:example", "openai", "preferred"),
+            ("user:example", "ollama", "fallback"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn empty_provider_default_values_make_pack_inactive() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let invalid = write_pack(
+        &dir,
+        "invalid.toml",
+        &pack("project", "promoted", "Project guidance").replace(
+            "[provenance]",
+            r#"[provider_defaults]
+preferred = ""
+fallbacks = ["ollama", " "]
+
+[provenance]"#,
+        ),
+    );
+
+    let set = load(&[invalid]).await;
+
+    assert!(!set.diagnostics()[0].active);
+    assert!(
+        set.diagnostics()[0]
+            .reason
+            .contains("provider_defaults.preferred must not be empty")
+    );
+    assert!(
+        set.diagnostics()[0]
+            .reason
+            .contains("provider_defaults.fallbacks must not be empty")
+    );
+    assert!(set.active_provider_default_candidates().is_empty());
+}
+
+#[tokio::test]
 async fn incompatible_schema_is_inactive() {
     let dir = tempfile::tempdir().expect("tempdir");
     let incompatible = write_pack(

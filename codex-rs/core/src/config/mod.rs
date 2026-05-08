@@ -1,6 +1,7 @@
 use crate::agents_md::AgentsMdManager;
 use crate::config::edit::ConfigEdit;
 use crate::config::edit::ConfigEditsBuilder;
+use crate::context_packs::ContextPackProviderDefaultCandidate;
 use crate::context_packs::ContextPackSet;
 use crate::context_packs::load_context_packs;
 use crate::path_utils::normalize_for_native_workdir;
@@ -81,8 +82,13 @@ use codex_mcp::McpConfig;
 use codex_mcp::enabled_builtin_mcp_servers;
 use codex_memories_read::memory_root;
 use codex_model_provider_info::LEGACY_OLLAMA_CHAT_PROVIDER_ID;
+use codex_model_provider_info::LMSTUDIO_DEFAULT_OSS_MODEL;
+use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OLLAMA_CHAT_PROVIDER_REMOVED_ERROR;
+use codex_model_provider_info::OLLAMA_DEFAULT_OSS_MODEL;
+use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_model_provider_info::built_in_model_providers;
 use codex_model_provider_info::merge_configured_model_providers;
 use codex_models_manager::ModelsManagerConfig;
@@ -409,6 +415,9 @@ pub struct Config {
     /// Optional override of model selection.
     pub model: Option<String>,
 
+    /// Source that selected the effective model value or default.
+    pub model_source: ConfigSelectionSource,
+
     /// Effective service tier request id preference for new turns.
     pub service_tier: Option<String>,
 
@@ -424,8 +433,14 @@ pub struct Config {
     /// Key into the model_providers map that specifies which provider to use.
     pub model_provider_id: String,
 
+    /// Source that selected the effective provider.
+    pub model_provider_source: ConfigSelectionSource,
+
     /// Info needed to make an API request to the model.
     pub model_provider: ModelProviderInfo,
+
+    /// Context-pack provider policy entries considered during provider selection.
+    pub provider_policy: Vec<ProviderPolicyDiagnostic>,
 
     /// Optionally specify the personality of the model
     pub personality: Option<Personality>,
@@ -837,6 +852,32 @@ pub struct Config {
 
     /// OTEL configuration (exporter type, endpoint, headers, etc.).
     pub otel: codex_config::types::OtelConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConfigSelectionSource {
+    pub source: String,
+    pub detail: Option<String>,
+}
+
+impl ConfigSelectionSource {
+    fn new(source: impl Into<String>, detail: impl Into<Option<String>>) -> Self {
+        Self {
+            source: source.into(),
+            detail: detail.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderPolicyDiagnostic {
+    pub pack_id: String,
+    pub kind: String,
+    pub path: String,
+    pub provider_id: String,
+    pub field: String,
+    pub status: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -2008,6 +2049,196 @@ pub fn resolve_oss_provider(
     }
 }
 
+fn resolve_model_provider_selection(
+    override_provider: Option<String>,
+    profile_provider: Option<String>,
+    global_provider: Option<String>,
+    context_packs: &ContextPackSet,
+    model_providers: &HashMap<String, ModelProviderInfo>,
+) -> (String, ConfigSelectionSource, Vec<ProviderPolicyDiagnostic>) {
+    if let Some(provider_id) = override_provider {
+        return (
+            provider_id,
+            ConfigSelectionSource::new("session_override", Some("model_provider override".into())),
+            skipped_provider_policy(
+                context_packs,
+                "provider selected by session override".to_string(),
+            ),
+        );
+    }
+
+    if let Some(provider_id) = profile_provider {
+        return (
+            provider_id,
+            ConfigSelectionSource::new("profile_config", Some("model_provider".into())),
+            skipped_provider_policy(
+                context_packs,
+                "provider selected by active profile".to_string(),
+            ),
+        );
+    }
+
+    if let Some(provider_id) = global_provider {
+        return (
+            provider_id,
+            ConfigSelectionSource::new("global_config", Some("model_provider".into())),
+            skipped_provider_policy(
+                context_packs,
+                "provider selected by global config".to_string(),
+            ),
+        );
+    }
+
+    let candidates = context_packs.active_provider_default_candidates();
+    if let Some(selected_idx) = candidates
+        .iter()
+        .position(|candidate| model_providers.contains_key(&candidate.provider_id))
+    {
+        let selected = &candidates[selected_idx];
+        let diagnostics = candidates
+            .iter()
+            .enumerate()
+            .map(|(idx, candidate)| {
+                if idx == selected_idx {
+                    provider_policy_diagnostic(
+                        candidate,
+                        "selected",
+                        "selected by first available active context-pack provider default",
+                    )
+                } else if idx < selected_idx {
+                    provider_policy_diagnostic(
+                        candidate,
+                        "ignored_unknown_provider",
+                        &unknown_provider_policy_reason(&candidate.provider_id),
+                    )
+                } else {
+                    provider_policy_diagnostic(
+                        candidate,
+                        "not_evaluated",
+                        "an earlier context-pack provider default was selected",
+                    )
+                }
+            })
+            .collect();
+        return (
+            selected.provider_id.clone(),
+            ConfigSelectionSource::new(
+                "context_pack",
+                Some(format!("{} {}", selected.pack_id, selected.field.as_str())),
+            ),
+            diagnostics,
+        );
+    }
+
+    let diagnostics = candidates
+        .iter()
+        .map(|candidate| {
+            provider_policy_diagnostic(
+                candidate,
+                "ignored_unknown_provider",
+                &unknown_provider_policy_reason(&candidate.provider_id),
+            )
+        })
+        .collect();
+
+    (
+        OPENAI_PROVIDER_ID.to_string(),
+        ConfigSelectionSource::new("built_in_default", Some(OPENAI_PROVIDER_ID.to_string())),
+        diagnostics,
+    )
+}
+
+fn resolve_model_selection(
+    override_model: Option<String>,
+    profile_model: Option<String>,
+    global_model: Option<String>,
+    model_provider_id: &str,
+) -> (Option<String>, ConfigSelectionSource) {
+    if let Some(model) = override_model {
+        return (
+            Some(model),
+            ConfigSelectionSource::new("session_override", Some("model override".into())),
+        );
+    }
+
+    if let Some(model) = profile_model {
+        return (
+            Some(model),
+            ConfigSelectionSource::new("profile_config", Some("model".into())),
+        );
+    }
+
+    if let Some(model) = global_model {
+        return (
+            Some(model),
+            ConfigSelectionSource::new("global_config", Some("model".into())),
+        );
+    }
+
+    if let Some(model) = default_model_for_local_provider(model_provider_id) {
+        return (
+            Some(model.to_string()),
+            ConfigSelectionSource::new(
+                "local_provider_default",
+                Some(model_provider_id.to_string()),
+            ),
+        );
+    }
+
+    (
+        None,
+        ConfigSelectionSource::new(
+            "provider_catalog_default",
+            Some(model_provider_id.to_string()),
+        ),
+    )
+}
+
+fn default_model_for_local_provider(provider_id: &str) -> Option<&'static str> {
+    match provider_id {
+        OLLAMA_OSS_PROVIDER_ID => Some(OLLAMA_DEFAULT_OSS_MODEL),
+        LMSTUDIO_OSS_PROVIDER_ID => Some(LMSTUDIO_DEFAULT_OSS_MODEL),
+        _ => None,
+    }
+}
+
+fn skipped_provider_policy(
+    context_packs: &ContextPackSet,
+    reason: String,
+) -> Vec<ProviderPolicyDiagnostic> {
+    context_packs
+        .active_provider_default_candidates()
+        .iter()
+        .map(|candidate| {
+            provider_policy_diagnostic(candidate, "skipped_higher_precedence", &reason)
+        })
+        .collect()
+}
+
+fn provider_policy_diagnostic(
+    candidate: &ContextPackProviderDefaultCandidate,
+    status: &str,
+    reason: &str,
+) -> ProviderPolicyDiagnostic {
+    ProviderPolicyDiagnostic {
+        pack_id: candidate.pack_id.clone(),
+        kind: format!("{:?}", candidate.kind).to_ascii_lowercase(),
+        path: candidate.path.display().to_string(),
+        provider_id: candidate.provider_id.clone(),
+        field: candidate.field.as_str().to_string(),
+        status: status.to_string(),
+        reason: reason.to_string(),
+    }
+}
+
+fn unknown_provider_policy_reason(provider_id: &str) -> String {
+    if provider_id == LEGACY_OLLAMA_CHAT_PROVIDER_ID {
+        OLLAMA_CHAT_PROVIDER_REMOVED_ERROR.to_string()
+    } else {
+        format!("provider `{provider_id}` is not configured")
+    }
+}
+
 /// Resolve the web search mode from explicit config and feature flags.
 fn resolve_web_search_mode(
     config_toml: &ConfigToml,
@@ -2848,6 +3079,8 @@ impl Config {
             None
         };
         let terminal_resize_reflow = resolve_terminal_resize_reflow_config(&cfg);
+        let context_pack_paths = cfg.context_pack_paths.clone().unwrap_or_default();
+        let context_packs = load_context_packs(fs, &context_pack_paths).await;
 
         let agent_roles =
             agent_roles::load_agent_roles(fs, &cfg, &config_layer_stack, &mut startup_warnings)
@@ -2862,10 +3095,14 @@ impl Config {
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
                 .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
 
-        let model_provider_id = model_provider
-            .or(config_profile.model_provider)
-            .or(cfg.model_provider)
-            .unwrap_or_else(|| "openai".to_string());
+        let (model_provider_id, model_provider_source, provider_policy) =
+            resolve_model_provider_selection(
+                model_provider,
+                config_profile.model_provider.clone(),
+                cfg.model_provider.clone(),
+                &context_packs,
+                &model_providers,
+            );
         let model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
@@ -3006,7 +3243,12 @@ impl Config {
 
         let forced_login_method = cfg.forced_login_method;
 
-        let model = model.or(config_profile.model).or(cfg.model);
+        let (model, model_source) = resolve_model_selection(
+            model,
+            config_profile.model.clone(),
+            cfg.model.clone(),
+            &model_provider_id,
+        );
         let mut notices = cfg.notice.unwrap_or_default();
         let service_tier = match service_tier_override {
             Some(Some(service_tier)) => Some(service_tier),
@@ -3256,16 +3498,17 @@ impl Config {
             .value
             .set(effective_permission_profile)
             .map_err(std::io::Error::from)?;
-        let context_pack_paths = cfg.context_pack_paths.clone().unwrap_or_default();
-        let context_packs = load_context_packs(fs, &context_pack_paths).await;
         let config = Self {
             model,
+            model_source,
             service_tier,
             review_model,
             model_context_window: cfg.model_context_window,
             model_auto_compact_token_limit: cfg.model_auto_compact_token_limit,
             model_provider_id,
+            model_provider_source,
             model_provider,
+            provider_policy,
             cwd: resolved_cwd,
             startup_warnings,
             permissions: Permissions {

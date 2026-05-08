@@ -2548,6 +2548,17 @@ fn print_context_pack_inspection(inspection: &ContextPackInspection) {
     for requirement in &inspection.evidence_requirements {
         println!("evidence:{}  {}", requirement.id, requirement.description);
     }
+    if let Some(provider_defaults) = &inspection.provider_defaults {
+        if let Some(preferred) = &provider_defaults.preferred {
+            println!("provider_preferred={preferred}");
+        }
+        if !provider_defaults.fallbacks.is_empty() {
+            println!(
+                "provider_fallbacks={}",
+                provider_defaults.fallbacks.join(", ")
+            );
+        }
+    }
     if let Some(guidance) = &inspection.guidance {
         for item in guidance {
             println!("guidance:{} [{}]", item.id, item.category);

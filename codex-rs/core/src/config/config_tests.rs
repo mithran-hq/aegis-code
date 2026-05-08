@@ -60,8 +60,11 @@ use codex_core_plugins::PluginsManager;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
 use codex_features::FeaturesToml;
+use codex_model_provider_info::ANTHROPIC_PROVIDER_ID;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
+use codex_model_provider_info::OLLAMA_DEFAULT_OSS_MODEL;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_models_manager::bundled_models_response;
 use codex_protocol::config_types::ServiceTier;
@@ -142,6 +145,45 @@ fn http_mcp(url: &str) -> McpServerConfig {
         oauth_resource: None,
         tools: HashMap::new(),
     }
+}
+
+fn write_provider_context_pack(
+    dir: &TempDir,
+    name: &str,
+    preferred: &str,
+    fallbacks: &[&str],
+) -> AbsolutePathBuf {
+    let fallback_items = fallbacks
+        .iter()
+        .map(|fallback| format!("\"{fallback}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let contents = format!(
+        r#"
+schema_version = 1
+pack_id = "project:provider-policy"
+kind = "project"
+name = "Provider policy"
+
+[compatibility]
+schema = "1"
+
+[[guidance]]
+id = "guidance:provider"
+category = "model"
+text = "Prefer the configured provider default."
+
+[provider_defaults]
+preferred = "{preferred}"
+fallbacks = [{fallback_items}]
+
+[promotion]
+status = "promoted"
+"#
+    );
+    let path = dir.path().join(name);
+    std::fs::write(&path, contents).expect("write context pack");
+    AbsolutePathBuf::try_from(path).expect("absolute path")
 }
 
 async fn derive_legacy_sandbox_policy_for_test(
@@ -504,6 +546,102 @@ region = "us-west-2"
             .and_then(|aws| aws.region.as_deref()),
         Some("us-west-2")
     );
+}
+
+#[tokio::test]
+async fn context_pack_provider_default_fills_provider_after_config_sources() {
+    let codex_home = tempdir().expect("tempdir");
+    let pack_path = write_provider_context_pack(
+        &codex_home,
+        "provider.toml",
+        "missing-provider",
+        &[ANTHROPIC_PROVIDER_ID],
+    );
+    let cfg = ConfigToml {
+        context_pack_paths: Some(vec![pack_path]),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await
+    .expect("load config");
+
+    assert_eq!(config.model_provider_id, ANTHROPIC_PROVIDER_ID);
+    assert_eq!(config.model_provider_source.source, "context_pack");
+    assert_eq!(
+        config.model_provider_source.detail.as_deref(),
+        Some("project:provider-policy fallback")
+    );
+    assert_eq!(config.model, None);
+    assert_eq!(config.model_source.source, "provider_catalog_default");
+    assert_eq!(
+        config
+            .provider_policy
+            .iter()
+            .map(|policy| (policy.provider_id.as_str(), policy.status.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("missing-provider", "ignored_unknown_provider"),
+            (ANTHROPIC_PROVIDER_ID, "selected"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn explicit_provider_override_wins_over_context_pack_provider_default() {
+    let codex_home = tempdir().expect("tempdir");
+    let pack_path =
+        write_provider_context_pack(&codex_home, "provider.toml", ANTHROPIC_PROVIDER_ID, &[]);
+    let cfg = ConfigToml {
+        context_pack_paths: Some(vec![pack_path]),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides {
+            model_provider: Some(OPENAI_PROVIDER_ID.to_string()),
+            ..Default::default()
+        },
+        codex_home.abs(),
+    )
+    .await
+    .expect("load config");
+
+    assert_eq!(config.model_provider_id, OPENAI_PROVIDER_ID);
+    assert_eq!(config.model_provider_source.source, "session_override");
+    assert_eq!(
+        config
+            .provider_policy
+            .iter()
+            .map(|policy| (policy.provider_id.as_str(), policy.status.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(ANTHROPIC_PROVIDER_ID, "skipped_higher_precedence")]
+    );
+}
+
+#[tokio::test]
+async fn local_provider_selected_by_config_gets_default_model() {
+    let cfg = ConfigToml {
+        model_provider: Some(OLLAMA_OSS_PROVIDER_ID.to_string()),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        tempdir().expect("tempdir").abs(),
+    )
+    .await
+    .expect("load config");
+
+    assert_eq!(config.model_provider_id, OLLAMA_OSS_PROVIDER_ID);
+    assert_eq!(config.model.as_deref(), Some(OLLAMA_DEFAULT_OSS_MODEL));
+    assert_eq!(config.model_source.source, "local_provider_default");
 }
 
 #[tokio::test]
@@ -6966,12 +7104,21 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
     assert_eq!(
         Config {
             model: Some("o3".to_string()),
+            model_source: ConfigSelectionSource {
+                source: "profile_config".to_string(),
+                detail: Some("model".to_string()),
+            },
             review_model: None,
             model_context_window: None,
             model_auto_compact_token_limit: None,
             service_tier: None,
             model_provider_id: "openai".to_string(),
+            model_provider_source: ConfigSelectionSource {
+                source: "profile_config".to_string(),
+                detail: Some("model_provider".to_string()),
+            },
             model_provider: fixture.openai_provider.clone(),
+            provider_policy: Vec::new(),
             permissions: Permissions {
                 approval_policy: Constrained::allow_any(AskForApproval::Never),
                 permission_profile: Constrained::allow_any(PermissionProfile::read_only()),
@@ -7228,12 +7375,21 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
     .await?;
     let expected_gpt3_profile_config = Config {
         model: Some("gpt-3.5-turbo".to_string()),
+        model_source: ConfigSelectionSource {
+            source: "profile_config".to_string(),
+            detail: Some("model".to_string()),
+        },
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
         service_tier: None,
         model_provider_id: "openai-custom".to_string(),
+        model_provider_source: ConfigSelectionSource {
+            source: "profile_config".to_string(),
+            detail: Some("model_provider".to_string()),
+        },
         model_provider: fixture.openai_custom_provider.clone(),
+        provider_policy: Vec::new(),
         permissions: Permissions {
             approval_policy: Constrained::allow_any(AskForApproval::UnlessTrusted),
             permission_profile: Constrained::allow_any(PermissionProfile::read_only()),
@@ -7389,12 +7545,21 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
     .await?;
     let expected_zdr_profile_config = Config {
         model: Some("o3".to_string()),
+        model_source: ConfigSelectionSource {
+            source: "profile_config".to_string(),
+            detail: Some("model".to_string()),
+        },
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
         service_tier: None,
         model_provider_id: "openai".to_string(),
+        model_provider_source: ConfigSelectionSource {
+            source: "profile_config".to_string(),
+            detail: Some("model_provider".to_string()),
+        },
         model_provider: fixture.openai_provider.clone(),
+        provider_policy: Vec::new(),
         permissions: Permissions {
             approval_policy: Constrained::allow_any(AskForApproval::OnFailure),
             permission_profile: Constrained::allow_any(PermissionProfile::read_only()),
@@ -7535,12 +7700,21 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
     .await?;
     let expected_gpt5_profile_config = Config {
         model: Some("gpt-5.4".to_string()),
+        model_source: ConfigSelectionSource {
+            source: "profile_config".to_string(),
+            detail: Some("model".to_string()),
+        },
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
         service_tier: None,
         model_provider_id: "openai".to_string(),
+        model_provider_source: ConfigSelectionSource {
+            source: "profile_config".to_string(),
+            detail: Some("model_provider".to_string()),
+        },
         model_provider: fixture.openai_provider.clone(),
+        provider_policy: Vec::new(),
         permissions: Permissions {
             approval_policy: Constrained::allow_any(AskForApproval::OnFailure),
             permission_profile: Constrained::allow_any(PermissionProfile::read_only()),

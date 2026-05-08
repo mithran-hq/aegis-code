@@ -2,6 +2,23 @@ use super::*;
 use crate::context_packs::ContextPackDiagnostic;
 use crate::context_packs::ContextPackKind;
 use crate::context_packs::PromotionStatus;
+use codex_model_provider_info::ANTHROPIC_DEFAULT_MODEL;
+use codex_model_provider_info::ANTHROPIC_PROVIDER_ID;
+
+fn selection_source(source: &str, detail: Option<&str>) -> ConfigSelectionSource {
+    ConfigSelectionSource {
+        source: source.to_string(),
+        detail: detail.map(str::to_string),
+    }
+}
+
+#[test]
+fn provider_catalog_default_model_uses_selected_provider_catalog() {
+    assert_eq!(
+        default_model_name_for_provider(ANTHROPIC_PROVIDER_ID),
+        ANTHROPIC_DEFAULT_MODEL
+    );
+}
 
 #[test]
 fn human_report_lists_context_pack_status() {
@@ -14,6 +31,17 @@ fn human_report_lists_context_pack_status() {
             id: "openai-compatible".to_string(),
             name: "OpenAI compatible".to_string(),
             model: "gpt-5.4".to_string(),
+            provider_source: selection_source("global_config", Some("model_provider")),
+            model_source: selection_source("global_config", Some("model")),
+            provider_policy: vec![ProviderPolicyDiagnostic {
+                pack_id: "project:example".to_string(),
+                kind: "project".to_string(),
+                path: "/tmp/project/pack.toml".to_string(),
+                provider_id: "openai-compatible".to_string(),
+                field: "preferred".to_string(),
+                status: "skipped_higher_precedence".to_string(),
+                reason: "provider selected by global config".to_string(),
+            }],
             wire_api: "responses".to_string(),
             base_url: Some("https://api.example.com/v1".to_string()),
             requires_openai_auth: false,
@@ -49,6 +77,10 @@ fn human_report_lists_context_pack_status() {
     assert!(output.contains("Provider:"));
     assert!(output.contains("selected: openai-compatible (OpenAI compatible)"));
     assert!(output.contains("model: gpt-5.4"));
+    assert!(output.contains("provider source: global_config (model_provider)"));
+    assert!(output.contains("model source: global_config (model)"));
+    assert!(output.contains("provider policy:"));
+    assert!(output.contains("project:example preferred openai-compatible"));
     assert!(output.contains("wire API: responses"));
     assert!(output.contains("env key: OPENAI_API_KEY (set)"));
     assert!(output.contains("project:example"));
@@ -69,6 +101,9 @@ fn human_report_makes_local_provider_endpoint_and_auth_clear() {
             id: "ollama".to_string(),
             name: "gpt-oss".to_string(),
             model: "gpt-oss:20b".to_string(),
+            provider_source: selection_source("session_override", Some("model_provider override")),
+            model_source: selection_source("local_provider_default", Some("ollama")),
+            provider_policy: Vec::new(),
             wire_api: "responses".to_string(),
             base_url: Some("http://localhost:11434/v1".to_string()),
             requires_openai_auth: false,
@@ -111,6 +146,9 @@ fn provider_report_serializes_env_key_presence_without_secret_value() {
             id: "openai-custom".to_string(),
             name: "OpenAI custom".to_string(),
             model: "gpt-5.4".to_string(),
+            provider_source: selection_source("global_config", Some("model_provider")),
+            model_source: selection_source("global_config", Some("model")),
+            provider_policy: Vec::new(),
             wire_api: "responses".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             requires_openai_auth: false,

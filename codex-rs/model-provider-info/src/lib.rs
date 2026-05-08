@@ -36,10 +36,12 @@ const OPENAI_PROVIDER_NAME: &str = "OpenAI";
 pub const OPENAI_PROVIDER_ID: &str = "openai";
 const ANTHROPIC_PROVIDER_NAME: &str = "Anthropic";
 pub const ANTHROPIC_PROVIDER_ID: &str = "anthropic";
+pub const ANTHROPIC_DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
 pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 pub const ANTHROPIC_API_KEY_ENV_VAR: &str = "ANTHROPIC_API_KEY";
 const AMAZON_BEDROCK_PROVIDER_NAME: &str = "Amazon Bedrock";
 pub const AMAZON_BEDROCK_PROVIDER_ID: &str = "amazon-bedrock";
+pub const AMAZON_BEDROCK_DEFAULT_MODEL: &str = "openai.gpt-5.4";
 pub const AMAZON_BEDROCK_DEFAULT_BASE_URL: &str =
     "https://bedrock-mantle.us-east-1.api.aws/openai/v1";
 const CHAT_WIRE_API_REMOVED_ERROR: &str = "`wire_api = \"chat\"` is no longer supported.\nHow to fix: set `wire_api = \"responses\"` in your provider config.\nMore info: https://github.com/openai/codex/discussions/7782";
@@ -440,6 +442,8 @@ pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
+pub const LMSTUDIO_DEFAULT_OSS_MODEL: &str = "openai/gpt-oss-20b";
+pub const OLLAMA_DEFAULT_OSS_MODEL: &str = "gpt-oss:20b";
 pub const AEGIS_OSS_BASE_URL_ENV_VAR: &str = "AEGIS_OSS_BASE_URL";
 pub const AEGIS_OSS_PORT_ENV_VAR: &str = "AEGIS_OSS_PORT";
 pub const CODEX_OSS_BASE_URL_ENV_VAR: &str = "CODEX_OSS_BASE_URL";

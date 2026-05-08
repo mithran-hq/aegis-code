@@ -22,6 +22,16 @@ Only valid packs with `promotion.status = "promoted"` contribute
 `guidance.text` to prompt assembly. Candidate, retired, unreadable, invalid, or
 schema-incompatible packs are ignored fail-closed and reported by `aegis doctor`.
 
+Promoted packs can also suggest provider defaults with `[provider_defaults]`.
+Provider selection precedence is: CLI/session `model_provider` override, active
+profile `model_provider`, global `model_provider`, the first available active
+context-pack provider default in `context_pack_paths` order, then the built-in
+`openai` provider. Context-pack provider defaults must use concrete provider ids
+such as `openai`, `anthropic`, `ollama`, `lmstudio`, or a custom
+`model_providers` key. CLI and config choices always override context-pack
+policy, and `aegis doctor` reports the selected provider, selected model, source
+of each selection, and the provider policy entries that were applied or skipped.
+
 ## Anthropic provider
 
 Aegis Code can use Anthropic directly through the built-in native
