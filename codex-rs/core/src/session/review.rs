@@ -1,5 +1,6 @@
 use super::turn_context::image_generation_tool_auth_allowed;
 use super::*;
+use crate::state::MethodStatePersistenceStatus;
 use std::sync::atomic::AtomicBool;
 
 /// Spawn a review thread using the given prompt.
@@ -67,7 +68,11 @@ pub(super) async fn spawn_review_thread(
         &config.agent_roles,
     ));
 
-    let review_prompt = resolved.prompt.clone();
+    let mut review_prompt = resolved.prompt.clone();
+    let method_state_status = { sess.state.lock().await.method_state_status() };
+    if let MethodStatePersistenceStatus::Loaded { state, .. } = method_state_status {
+        review_prompt.push_str(&crate::method_review::method_review_prompt_context(&state));
+    }
     let provider = parent_turn_context.provider.clone();
     let auth_manager = parent_turn_context.auth_manager.clone();
     let model_info = review_model_info.clone();

@@ -345,7 +345,7 @@ async fn build_receipt(
     )
 }
 
-async fn capture_git_state(cwd: &Path) -> MethodEvidenceGitState {
+pub(crate) async fn capture_git_state(cwd: &Path) -> MethodEvidenceGitState {
     let Some(git_info) = collect_git_info(cwd).await else {
         return MethodEvidenceGitState {
             status: MethodEvidenceGitStateStatus::Unavailable,

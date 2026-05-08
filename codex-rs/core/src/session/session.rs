@@ -2,6 +2,8 @@ use super::*;
 use crate::goals::GoalRuntimeState;
 use crate::method_evidence::EvidenceSessionSnapshot;
 use crate::method_evidence::build_method_evidence_for_command;
+use crate::method_review::ReviewSessionSnapshot;
+use crate::method_review::record_method_review_output;
 use crate::state::MethodStatePersistenceDiagnostic;
 use crate::state::MethodStatePersistenceStatus;
 use codex_git_utils::collect_git_info;
@@ -16,6 +18,7 @@ use codex_protocol::method_state::MethodResumeValidityStatus;
 use codex_protocol::method_state::MethodState;
 use codex_protocol::permissions::FileSystemPath;
 use codex_protocol::permissions::FileSystemSpecialPath;
+use codex_protocol::protocol::ReviewOutputEvent;
 use codex_protocol::protocol::ThreadSource;
 use codex_protocol::protocol::TurnEnvironmentSelection;
 use tokio::sync::Semaphore;
@@ -876,6 +879,53 @@ impl Session {
             )
             .await;
         }
+    }
+
+    pub(crate) async fn record_completed_review_output(
+        &self,
+        turn: &TurnContext,
+        review_output: &ReviewOutputEvent,
+    ) -> bool {
+        let (mut method_state, provider, session_id, thread_id) = {
+            let state = self.state.lock().await;
+            let MethodStatePersistenceStatus::Loaded {
+                state: method_state,
+                ..
+            } = state.method_state_status()
+            else {
+                return false;
+            };
+            (
+                method_state,
+                state.session_configuration.provider.name.clone(),
+                self.session_id().to_string(),
+                self.thread_id().to_string(),
+            )
+        };
+
+        record_method_review_output(
+            &mut method_state,
+            review_output,
+            &turn.cwd,
+            ReviewSessionSnapshot {
+                turn_id: turn.sub_id.clone(),
+                session_id: Some(session_id),
+                thread_id: Some(thread_id),
+                provider: Some(provider),
+                model: Some(turn.model_info.slug.clone()),
+            },
+        )
+        .await;
+        if let Err(err) = self.replace_method_state(method_state).await {
+            self.send_event(
+                turn,
+                EventMsg::Warning(WarningEvent {
+                    message: format!("failed to persist method review findings: {err:#}"),
+                }),
+            )
+            .await;
+        }
+        true
     }
 
     #[instrument(name = "session_init", level = "info", skip_all)]

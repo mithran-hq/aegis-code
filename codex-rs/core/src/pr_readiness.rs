@@ -252,6 +252,7 @@ fn validate_method_state(
     validate_falsifiers(method_state, findings);
     validate_review_findings(method_state, findings);
     validate_closure_receipts(method_state, &snapshot.pull_request.head_sha, findings);
+    validate_closure_review_findings(method_state, &snapshot.pull_request.head_sha, findings);
 }
 
 fn validate_falsifiers(method_state: &MethodState, findings: &mut Vec<PrReadinessFinding>) {
@@ -324,6 +325,61 @@ fn validate_review_findings(method_state: &MethodState, findings: &mut Vec<PrRea
     }
 }
 
+fn validate_closure_review_findings(
+    method_state: &MethodState,
+    head_sha: &str,
+    findings: &mut Vec<PrReadinessFinding>,
+) {
+    let Some(closure) = &method_state.closure else {
+        return;
+    };
+    if closure.review_finding_ids.is_empty() {
+        push_error(
+            findings,
+            "missing_closure_review_finding",
+            Some("method_state".to_string()),
+            "Method state closure does not cite any review finding.",
+            "Run `aegis review` and cite its review finding id in closure.",
+        );
+        return;
+    }
+    let evidence_by_id = evidence_by_id(method_state);
+
+    for finding_id in &closure.review_finding_ids {
+        let Some(review_finding) = method_state
+            .review_findings
+            .iter()
+            .find(|finding| finding.id == *finding_id)
+        else {
+            push_error(
+                findings,
+                "closure_cites_missing_review_finding",
+                Some(finding_id.clone()),
+                &format!("Closure cites missing review finding `{finding_id}`."),
+                "Remove stale review finding ids or include the corresponding review finding record.",
+            );
+            continue;
+        };
+
+        if !review_finding.evidence_ids.iter().any(|evidence_id| {
+            evidence_by_id
+                .get(evidence_id.as_str())
+                .is_some_and(|evidence| receipt_matches_pr_head(evidence, head_sha))
+        }) {
+            push_error(
+                findings,
+                "review_finding_missing_current_receipt",
+                Some(review_finding.id.clone()),
+                &format!(
+                    "Review finding `{}` is not backed by a successful clean receipt at the PR head.",
+                    review_finding.id
+                ),
+                "Re-run `aegis review` at the PR head and cite the resulting review finding.",
+            );
+        }
+    }
+}
+
 fn validate_closure_receipts(
     method_state: &MethodState,
     head_sha: &str,
@@ -390,6 +446,16 @@ fn validate_closure_receipts(
             );
         }
     }
+}
+
+fn receipt_matches_pr_head(evidence: &MethodEvidence, head_sha: &str) -> bool {
+    let Some(receipt) = evidence.receipt.as_ref() else {
+        return false;
+    };
+    evidence.has_successful_receipt()
+        && receipt.git_state.status == MethodEvidenceGitStateStatus::Captured
+        && receipt.git_state.commit.as_deref() == Some(head_sha)
+        && receipt.git_state.dirty == Some(false)
 }
 
 fn validate_issue_train_context(
@@ -673,12 +739,21 @@ mod tests {
                 receipt: Some(receipt(commit, false, 0)),
             }],
             gates: Vec::new(),
-            review_findings: Vec::new(),
+            review_findings: vec![MethodReviewFinding {
+                id: "finding:review".to_string(),
+                summary: "Review completed with no blocking findings".to_string(),
+                severity: MethodReviewSeverity::Info,
+                status: MethodReviewFindingStatus::Addressed,
+                claim_ids: Vec::new(),
+                evidence_ids: vec!["evidence:test".to_string()],
+                reviewed_at_unix_seconds: 1,
+                reviewer: Some("tester".to_string()),
+            }],
             closure: Some(MethodClosureState {
                 closed_at_unix_seconds: 2,
                 summary: "Ready".to_string(),
                 evidence_ids: vec!["evidence:test".to_string()],
-                review_finding_ids: Vec::new(),
+                review_finding_ids: vec!["finding:review".to_string()],
                 closed_by: Some("tester".to_string()),
             }),
             resume_context: MethodResumeContext {
@@ -812,6 +887,18 @@ mod tests {
 
         assert_has_error(&report, "receipt_commit_mismatch");
         assert_has_error(&report, "receipt_dirty_git_state");
+    }
+
+    #[test]
+    fn closure_review_finding_requires_current_receipt() {
+        let mut snapshot = valid_snapshot();
+        let mut state = snapshot.method_state.take().expect("method state");
+        state.review_findings[0].evidence_ids.clear();
+        snapshot.method_state = Some(state);
+
+        let report = validate_pr_readiness(&snapshot);
+
+        assert_has_error(&report, "review_finding_missing_current_receipt");
     }
 
     #[test]

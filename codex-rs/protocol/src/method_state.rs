@@ -73,10 +73,38 @@ impl MethodState {
         if closure.evidence_ids.is_empty() || !self.closure_evidence_gaps().is_empty() {
             return false;
         }
+        if closure.review_finding_ids.is_empty() || !self.closure_review_findings_valid(closure) {
+            return false;
+        }
         closure.evidence_ids.iter().all(|id| {
             self.evidence.iter().any(|evidence| {
                 evidence.id.as_str() == id.as_str() && evidence.has_successful_receipt()
             })
+        })
+    }
+
+    fn closure_review_findings_valid(&self, closure: &MethodClosureState) -> bool {
+        let cited_findings = closure
+            .review_finding_ids
+            .iter()
+            .filter_map(|id| {
+                self.review_findings
+                    .iter()
+                    .find(|finding| finding.id == *id)
+            })
+            .collect::<Vec<_>>();
+        if cited_findings.len() != closure.review_finding_ids.len() {
+            return false;
+        }
+
+        !self.review_findings.iter().any(|finding| {
+            finding.status == MethodReviewFindingStatus::Open
+                && matches!(
+                    finding.severity,
+                    MethodReviewSeverity::Blocking
+                        | MethodReviewSeverity::High
+                        | MethodReviewSeverity::Medium
+                )
         })
     }
 
@@ -979,6 +1007,43 @@ mod tests {
             "requirement:serialization"
         );
         assert!(!state.is_closure_valid());
+    }
+
+    #[test]
+    fn closed_state_requires_closure_referenced_review_finding() {
+        let mut state = base_state(MethodWorkStatus::Closed);
+        state.closure = Some(MethodClosureState {
+            closed_at_unix_seconds: 1_779_999_200,
+            summary: "Missing review finding citation".to_string(),
+            evidence_ids: vec!["evidence:test".to_string()],
+            review_finding_ids: Vec::new(),
+            closed_by: Some("codex".to_string()),
+        });
+
+        assert!(!state.is_closure_valid());
+
+        state.closure.as_mut().expect("closure").review_finding_ids =
+            vec!["finding:missing".to_string()];
+        assert!(!state.is_closure_valid());
+    }
+
+    #[test]
+    fn closed_state_blocks_open_serious_review_findings() {
+        let mut state = base_state(MethodWorkStatus::Closed);
+        state.review_findings[0].status = MethodReviewFindingStatus::Open;
+        state.review_findings[0].severity = MethodReviewSeverity::High;
+        state.closure = Some(MethodClosureState {
+            closed_at_unix_seconds: 1_779_999_200,
+            summary: "Open serious review finding".to_string(),
+            evidence_ids: vec!["evidence:test".to_string()],
+            review_finding_ids: vec!["finding:none".to_string()],
+            closed_by: Some("codex".to_string()),
+        });
+
+        assert!(!state.is_closure_valid());
+
+        state.review_findings[0].status = MethodReviewFindingStatus::AcceptedRisk;
+        assert!(state.is_closure_valid());
     }
 
     #[test]

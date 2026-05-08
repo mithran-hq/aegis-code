@@ -4239,12 +4239,21 @@ mod tests {
                 }
             }],
             "gates": [],
-            "review_findings": [],
+            "review_findings": [{
+                "id": "finding:review",
+                "summary": "Review completed with no blocking findings",
+                "severity": "info",
+                "status": "addressed",
+                "claim_ids": [],
+                "evidence_ids": ["evidence:test"],
+                "reviewed_at_unix_seconds": 1,
+                "reviewer": "tester"
+            }],
             "closure": {
                 "closed_at_unix_seconds": 2,
                 "summary": "Ready",
                 "evidence_ids": ["evidence:test"],
-                "review_finding_ids": [],
+                "review_finding_ids": ["finding:review"],
                 "closed_by": "tester"
             },
             "resume_context": {

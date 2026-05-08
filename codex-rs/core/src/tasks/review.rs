@@ -13,11 +13,13 @@ use codex_protocol::protocol::ExitedReviewModeEvent;
 use codex_protocol::protocol::ItemCompletedEvent;
 use codex_protocol::protocol::ReviewOutputEvent;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::WarningEvent;
 use codex_utils_template::Template;
 use tokio_util::sync::CancellationToken;
 
 use crate::codex_delegate::run_codex_thread_one_shot;
 use crate::config::Constrained;
+use crate::method_review::sort_review_findings;
 use crate::review_format::format_review_findings_block;
 use crate::review_format::render_review_output_text;
 use crate::session::session::Session;
@@ -192,14 +194,16 @@ async fn process_review_events(
 /// If parsing still fails, return a structured fallback carrying the plain text
 /// in `overall_explanation`.
 fn parse_review_output_event(text: &str) -> ReviewOutputEvent {
-    if let Ok(ev) = serde_json::from_str::<ReviewOutputEvent>(text) {
+    if let Ok(mut ev) = serde_json::from_str::<ReviewOutputEvent>(text) {
+        sort_review_findings(&mut ev.findings);
         return ev;
     }
     if let (Some(start), Some(end)) = (text.find('{'), text.rfind('}'))
         && start < end
         && let Some(slice) = text.get(start..=end)
-        && let Ok(ev) = serde_json::from_str::<ReviewOutputEvent>(slice)
+        && let Ok(mut ev) = serde_json::from_str::<ReviewOutputEvent>(slice)
     {
+        sort_review_findings(&mut ev.findings);
         return ev;
     }
     ReviewOutputEvent {
@@ -240,6 +244,23 @@ pub(crate) async fn exit_review_mode(
                 .to_string();
         (rendered, assistant_message)
     };
+
+    if let Some(output) = review_output.as_ref()
+        && !session
+            .record_completed_review_output(ctx.as_ref(), output)
+            .await
+    {
+        session
+            .send_event(
+                ctx.as_ref(),
+                EventMsg::Warning(WarningEvent {
+                    message:
+                        "Aegis method state is not loaded; review findings were not persisted."
+                            .to_string(),
+                }),
+            )
+            .await;
+    }
 
     session
         .record_conversation_items(
@@ -296,6 +317,7 @@ fn normalize_review_template_line_endings(template: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::normalize_review_template_line_endings;
+    use super::parse_review_output_event;
     use super::render_review_exit_success;
     use pretty_assertions::assert_eq;
 
@@ -313,5 +335,41 @@ mod tests {
             normalize_review_template_line_endings("<user_action>\r\n  <results>\r\n  None.\r\n"),
             "<user_action>\n  <results>\n  None.\n"
         );
+    }
+
+    #[test]
+    fn parse_review_output_orders_findings_by_priority() {
+        let parsed = parse_review_output_event(
+            r#"{
+                "findings": [
+                    {
+                        "title": "P3",
+                        "body": "low",
+                        "confidence_score": 0.8,
+                        "priority": 3,
+                        "code_location": {
+                            "absolute_file_path": "/repo/src/lib.rs",
+                            "line_range": { "start": 1, "end": 1 }
+                        }
+                    },
+                    {
+                        "title": "P1",
+                        "body": "high",
+                        "confidence_score": 0.8,
+                        "priority": 1,
+                        "code_location": {
+                            "absolute_file_path": "/repo/src/lib.rs",
+                            "line_range": { "start": 2, "end": 2 }
+                        }
+                    }
+                ],
+                "overall_correctness": "patch is incorrect",
+                "overall_explanation": "has findings",
+                "overall_confidence_score": 0.8
+            }"#,
+        );
+
+        assert_eq!(parsed.findings[0].title, "P1");
+        assert_eq!(parsed.findings[1].title, "P3");
     }
 }
