@@ -49,12 +49,20 @@ pack TOML in place, so the audit trail travels with the artifact.
 ```bash
 aegis context-pack list
 aegis context-pack list --json --kind learned --status candidate
+aegis context-pack compile-candidates --min-support 2
 aegis context-pack inspect learned:example --show-guidance
 aegis context-pack promote learned:candidate --evidence issue:13 --reason "reviewed"
 aegis context-pack retire learned:old --reason "superseded"
 aegis context-pack rollback --reason "undo promotion"
 aegis context-pack lineage
 ```
+
+`compile-candidates` reads repeated Aegis Engine runtime events and
+candidate-pack inputs, then writes learned packs with `promotion.status =
+"candidate"`. By default, generated candidate paths are added to
+`context_pack_paths` so they can be inspected and promoted with the lifecycle
+commands above. Use `--dry-run` to preview without writing files or config, and
+`--no-register` to write candidate files without registering them.
 
 Promotion is limited to learned candidate packs and requires at least one
 `--evidence` reference. If another learned pack is currently promoted, promotion

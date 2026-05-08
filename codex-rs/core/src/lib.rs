@@ -46,6 +46,7 @@ mod flags;
 mod git_info_tests;
 mod goals;
 pub mod issue_train;
+pub mod learned_pack_compiler;
 pub mod pr_readiness;
 pub use goals::ExternalGoalPreviousStatus;
 pub use goals::ExternalGoalSet;

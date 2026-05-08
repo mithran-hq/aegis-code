@@ -39,6 +39,9 @@ use codex_core::issue_train::IssueTrainReport;
 use codex_core::issue_train::IssueTrainSnapshot;
 use codex_core::issue_train::parse_parent_child_refs;
 use codex_core::issue_train::validate_issue_train;
+use codex_core::learned_pack_compiler::LearnedPackCompileResult;
+use codex_core::learned_pack_compiler::LearnedPackCompilerOptions;
+use codex_core::learned_pack_compiler::compile_learned_pack_candidates;
 use codex_core::pr_readiness::PrReadinessReport;
 use codex_core::pr_readiness::PrReadinessSnapshot;
 use codex_core::pr_readiness::PullRequestSnapshot;
@@ -63,12 +66,15 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use supports_color::Stream;
+use toml_edit::Array;
+use toml_edit::Item as TomlItem;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
@@ -85,6 +91,7 @@ use crate::mcp_cmd::McpCli;
 use codex_core::build_models_manager;
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
+use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::find_codex_home;
 use codex_features::FEATURES;
@@ -322,6 +329,8 @@ struct ContextPackCommand {
 enum ContextPackSubcommand {
     /// List configured context packs.
     List(ContextPackListCommand),
+    /// Compile inactive learned candidate packs from Aegis Engine signals.
+    CompileCandidates(ContextPackCompileCandidatesCommand),
     /// Inspect one configured context pack.
     Inspect(ContextPackInspectCommand),
     /// Promote a learned candidate pack.
@@ -342,6 +351,37 @@ struct ContextPackListCommand {
     kind: Option<ContextPackKindArg>,
     #[arg(long, value_enum, default_value_t = ContextPackStatusArg::All)]
     status: ContextPackStatusArg,
+}
+
+#[derive(Debug, Parser)]
+struct ContextPackCompileCandidatesCommand {
+    /// Aegis Engine runtime event JSONL path.
+    #[arg(long)]
+    events: Option<PathBuf>,
+    /// Aegis Engine candidate-pack input JSONL path.
+    #[arg(long = "alert-inputs")]
+    alert_inputs: Option<PathBuf>,
+    /// Directory where candidate context-pack TOML files are written.
+    #[arg(long = "output-dir")]
+    output_dir: Option<PathBuf>,
+    /// Minimum repeated evidence refs required before a candidate is emitted.
+    #[arg(long = "min-support", default_value_t = 2)]
+    min_support: usize,
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+    /// Do not write candidate files or register context-pack paths.
+    #[arg(long)]
+    dry_run: bool,
+    /// Write candidates without adding them to context_pack_paths.
+    #[arg(long = "no-register")]
+    no_register: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct LearnedPackCompileCliResult {
+    compile: LearnedPackCompileResult,
+    registered_paths: Vec<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -2107,6 +2147,52 @@ async fn run_context_pack_command(
                 print_context_pack_list(&diagnostics);
             }
         }
+        ContextPackSubcommand::CompileCandidates(cmd) => {
+            let output_dir = resolve_context_pack_cli_path(
+                &config,
+                cmd.output_dir.unwrap_or_else(|| {
+                    config
+                        .codex_home
+                        .join("context-packs")
+                        .join("learned-candidates")
+                        .to_path_buf()
+                }),
+            );
+            let options = LearnedPackCompilerOptions {
+                events_path: resolve_context_pack_cli_path(
+                    &config,
+                    cmd.events
+                        .unwrap_or_else(|| config.aegis_engine.jsonl_path.clone()),
+                ),
+                alert_inputs_path: resolve_context_pack_cli_path(
+                    &config,
+                    cmd.alert_inputs
+                        .unwrap_or_else(|| config.aegis_engine.candidate_inputs_path.clone()),
+                ),
+                output_dir,
+                repository: repository_name_for_context_pack(&config),
+                min_support: cmd.min_support,
+                now: context_pack_timestamp(),
+                dry_run: cmd.dry_run,
+            };
+            let result = compile_learned_pack_candidates(&options)?;
+            let registered_paths = if cmd.dry_run || cmd.no_register {
+                Vec::new()
+            } else {
+                register_context_pack_candidate_paths(&config, &result)?
+            };
+            if cmd.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&LearnedPackCompileCliResult {
+                        compile: result,
+                        registered_paths,
+                    })?
+                );
+            } else {
+                print_learned_pack_compile_result(&result, &registered_paths, cmd.no_register);
+            }
+        }
         ContextPackSubcommand::Inspect(cmd) => {
             let path = resolve_context_pack_path(&config, &cmd.selector)?;
             let inspection = inspect_context_pack_path(&path, cmd.show_guidance)?;
@@ -2258,6 +2344,100 @@ fn resolve_context_pack_path(config: &Config, selector: &str) -> anyhow::Result<
         }),
         [] => anyhow::bail!("no configured context pack matches `{trimmed}`"),
         _ => anyhow::bail!("multiple configured context packs match `{trimmed}`"),
+    }
+}
+
+fn resolve_context_pack_cli_path(config: &Config, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        config.cwd.join(path).to_path_buf()
+    }
+}
+
+fn repository_name_for_context_pack(config: &Config) -> String {
+    config
+        .cwd
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("aegis-code")
+        .to_string()
+}
+
+fn register_context_pack_candidate_paths(
+    config: &Config,
+    result: &LearnedPackCompileResult,
+) -> anyhow::Result<Vec<String>> {
+    let mut paths = configured_context_pack_paths(config)?;
+    let mut registered = Vec::new();
+    for candidate in &result.candidates {
+        let path = AbsolutePathBuf::try_from(PathBuf::from(&candidate.path))
+            .map_err(|_| anyhow::anyhow!("candidate path is not absolute: {}", candidate.path))?;
+        if paths.iter().any(|existing| existing == &path) {
+            continue;
+        }
+        registered.push(path.display().to_string());
+        paths.push(path);
+    }
+    if registered.is_empty() {
+        return Ok(registered);
+    }
+
+    ConfigEditsBuilder::new(config.codex_home.as_path())
+        .with_edits([ConfigEdit::SetPath {
+            segments: vec!["context_pack_paths".to_string()],
+            value: string_array(paths.iter().map(|path| path.display().to_string())),
+        }])
+        .apply_blocking()?;
+    Ok(registered)
+}
+
+fn string_array(values: impl IntoIterator<Item = String>) -> TomlItem {
+    let mut array = Array::new();
+    for value in values {
+        array.push(value);
+    }
+    TomlItem::Value(array.into())
+}
+
+fn print_learned_pack_compile_result(
+    result: &LearnedPackCompileResult,
+    registered_paths: &[String],
+    no_register: bool,
+) {
+    if result.dry_run {
+        println!("Dry run; no files changed.");
+    }
+    if result.candidates.is_empty() {
+        println!(
+            "No learned context-pack candidates met min support {}.",
+            result.min_support
+        );
+    } else {
+        for candidate in &result.candidates {
+            println!(
+                "candidate {}  {:?}  support={}  {}",
+                candidate.pack_id, candidate.group_kind, candidate.support_count, candidate.path
+            );
+        }
+    }
+    for skipped in &result.skipped_groups {
+        println!(
+            "skipped {:?} support={}: {}",
+            skipped.group_kind, skipped.support_count, skipped.reason
+        );
+    }
+    for diagnostic in &result.diagnostics {
+        eprintln!("diagnostic: {diagnostic}");
+    }
+    if !registered_paths.is_empty() {
+        println!(
+            "Registered {} context-pack path(s).",
+            registered_paths.len()
+        );
+    } else if no_register && !result.candidates.is_empty() {
+        println!("Registration skipped by --no-register.");
     }
 }
 

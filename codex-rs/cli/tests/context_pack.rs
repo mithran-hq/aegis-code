@@ -5,6 +5,7 @@ use anyhow::Result;
 use predicates::str::contains;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
+use serde_json::json;
 use tempfile::TempDir;
 
 fn codex_command(codex_home: &Path) -> Result<assert_cmd::Command> {
@@ -55,6 +56,43 @@ fn write_config(codex_home: &Path, paths: &[PathBuf]) -> Result<()> {
         codex_home.join("config.toml"),
         format!("context_pack_paths = [{encoded_paths}]\n"),
     )?;
+    Ok(())
+}
+
+fn write_repeated_review_events(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let events = [
+        json!({
+            "event_id": "review-1",
+            "created_at_unix_seconds": 1_777_000_000,
+            "source": "aegis-code",
+            "summary": "Missing adversarial review before commit",
+            "category": "review",
+            "severity_hint": "high",
+            "tags": [],
+            "context": { "severity": "high", "status": "open" },
+            "redactions": []
+        }),
+        json!({
+            "event_id": "review-2",
+            "created_at_unix_seconds": 1_777_000_001,
+            "source": "aegis-code",
+            "summary": "Missing adversarial review before commit",
+            "category": "review",
+            "severity_hint": "high",
+            "tags": [],
+            "context": { "severity": "high", "status": "open" },
+            "redactions": []
+        }),
+    ];
+    let contents = events
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n");
+    std::fs::write(path, format!("{contents}\n"))?;
     Ok(())
 }
 
@@ -171,6 +209,88 @@ async fn context_pack_promote_and_rollback_update_configured_packs() -> Result<(
         .assert()
         .success()
         .stdout(contains("Dry run; no files changed."));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn context_pack_compile_candidates_writes_and_registers_inactive_pack() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let events_path = codex_home.path().join("aegis-engine/events.jsonl");
+    let output_dir = codex_home.path().join("context-packs/learned-candidates");
+    write_repeated_review_events(&events_path)?;
+
+    let mut compile = codex_command(codex_home.path())?;
+    let output = compile
+        .args([
+            "context-pack",
+            "compile-candidates",
+            "--events",
+            events_path.to_str().expect("utf-8 path"),
+            "--output-dir",
+            output_dir.to_str().expect("utf-8 path"),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let result: Value = serde_json::from_slice(&output)?;
+    assert_eq!(result["compile"]["candidates"].as_array().unwrap().len(), 1);
+    assert_eq!(result["registered_paths"].as_array().unwrap().len(), 1);
+
+    let candidate_path = PathBuf::from(
+        result["compile"]["candidates"][0]["path"]
+            .as_str()
+            .expect("candidate path"),
+    );
+    assert!(candidate_path.exists());
+    let candidate_toml = std::fs::read_to_string(&candidate_path)?;
+    assert!(candidate_toml.contains(r#"status = "candidate""#));
+    assert!(candidate_toml.contains("event:review-1"));
+    assert!(candidate_toml.contains("event:review-2"));
+    assert!(candidate_toml.contains("[rollback]"));
+
+    let mut list = codex_command(codex_home.path())?;
+    let list_output = list
+        .args(["context-pack", "list", "--json", "--kind", "learned"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let diagnostics: Value = serde_json::from_slice(&list_output)?;
+    assert_eq!(diagnostics[0]["promotion_status"], "candidate");
+    assert_eq!(diagnostics[0]["active"], false);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn context_pack_compile_candidates_dry_run_writes_nothing() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let events_path = codex_home.path().join("aegis-engine/events.jsonl");
+    let output_dir = codex_home.path().join("context-packs/learned-candidates");
+    write_repeated_review_events(&events_path)?;
+
+    let mut compile = codex_command(codex_home.path())?;
+    compile
+        .args([
+            "context-pack",
+            "compile-candidates",
+            "--events",
+            events_path.to_str().expect("utf-8 path"),
+            "--output-dir",
+            output_dir.to_str().expect("utf-8 path"),
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Dry run; no files changed."));
+
+    assert!(!output_dir.exists());
+    assert!(!codex_home.path().join("config.toml").exists());
 
     Ok(())
 }

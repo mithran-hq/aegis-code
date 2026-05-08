@@ -281,8 +281,10 @@ Alert ingestion never mutates active prompt layers. Safe alerts are recorded as
 observed, suspicious alerts mark method state as warned, and malicious alerts
 mark method state as blocked. Candidate-pack input records for suspicious or
 malicious alerts with guidance are appended to
-`$AEGIS_HOME/aegis-engine/candidate-pack-inputs.jsonl`; a later learned-pack
-compiler may consume those records, but they are not active context packs.
+`$AEGIS_HOME/aegis-engine/candidate-pack-inputs.jsonl`. The learned-pack
+candidate compiler can consume those records with repeated runtime events and
+emit inactive learned context-pack candidates; it does not promote packs or
+mutate active prompt layers.
 
 ```jsonc
 {
