@@ -18,6 +18,9 @@ use crate::tools::network_approval::NetworkApprovalMode;
 use crate::tools::network_approval::begin_network_approval;
 use crate::tools::network_approval::finish_deferred_network_approval;
 use crate::tools::network_approval::finish_immediate_network_approval;
+use crate::tools::preflight::ToolPreflightContext;
+use crate::tools::preflight::evaluate_preflight;
+use crate::tools::preflight::event_for_decision;
 use crate::tools::sandboxing::ApprovalCtx;
 use crate::tools::sandboxing::ExecApprovalRequirement;
 use crate::tools::sandboxing::SandboxAttempt;
@@ -31,7 +34,9 @@ use codex_otel::ToolDecisionSource;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::SandboxErr;
 use codex_protocol::exec_output::ExecToolCallOutput;
+use codex_protocol::protocol::AegisPreflightVerdict;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::NetworkPolicyRuleAction;
 use codex_protocol::protocol::ReviewDecision;
 use codex_sandboxing::SandboxManager;
@@ -145,9 +150,45 @@ impl ToolOrchestrator {
 
         let file_system_sandbox_policy = turn_ctx.file_system_sandbox_policy();
         let network_sandbox_policy = turn_ctx.network_sandbox_policy();
-        let requirement = tool.exec_approval_requirement(req).unwrap_or_else(|| {
+        let mut requirement = tool.exec_approval_requirement(req).unwrap_or_else(|| {
             default_exec_approval_requirement(approval_policy, &file_system_sandbox_policy)
         });
+        if let Some(preflight_spec) = tool.preflight_spec(req) {
+            let method_context =
+                ToolPreflightContext::from_status(tool_ctx.session.method_state_status().await);
+            let decision = evaluate_preflight(&preflight_spec, &method_context, &turn_ctx.cwd);
+            let event = event_for_decision(
+                &tool_ctx.call_id,
+                &turn_ctx.sub_id,
+                &tool_ctx.tool_name,
+                &preflight_spec,
+                &decision,
+            );
+            tool_ctx
+                .session
+                .send_event(turn_ctx, EventMsg::AegisPreflightDecision(event))
+                .await;
+            match decision.verdict {
+                AegisPreflightVerdict::Allow => {}
+                AegisPreflightVerdict::Block => {
+                    return Err(ToolError::Rejected(decision.reason));
+                }
+                AegisPreflightVerdict::RequireConfirmation => {
+                    if matches!(approval_policy, AskForApproval::Never) {
+                        return Err(ToolError::Rejected(format!(
+                            "Aegis preflight requires confirmation, but approval policy is never: {}",
+                            decision.reason
+                        )));
+                    }
+                    requirement = ExecApprovalRequirement::NeedsApproval {
+                        reason: Some(decision.reason),
+                        proposed_execpolicy_amendment: requirement
+                            .proposed_execpolicy_amendment()
+                            .cloned(),
+                    };
+                }
+            }
+        }
         match requirement {
             ExecApprovalRequirement::Skip { .. } => {
                 if strict_auto_review {

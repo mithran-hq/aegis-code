@@ -1045,6 +1045,120 @@ async fn danger_full_access_tool_attempts_do_not_enforce_managed_network() -> an
 }
 
 #[tokio::test]
+async fn preflight_blocks_high_risk_tool_before_runtime_and_emits_event() -> anyhow::Result<()> {
+    #[derive(Default)]
+    struct PreflightProbeRuntime {
+        ran: bool,
+    }
+
+    impl crate::tools::sandboxing::Approvable<()> for PreflightProbeRuntime {
+        type ApprovalKey = String;
+
+        fn approval_keys(&self, _req: &()) -> Vec<Self::ApprovalKey> {
+            vec!["probe".to_string()]
+        }
+
+        fn start_approval_async<'a>(
+            &'a mut self,
+            _req: &'a (),
+            _ctx: crate::tools::sandboxing::ApprovalCtx<'a>,
+        ) -> futures::future::BoxFuture<'a, ReviewDecision> {
+            Box::pin(async { ReviewDecision::Approved })
+        }
+    }
+
+    impl crate::tools::sandboxing::Sandboxable for PreflightProbeRuntime {
+        fn sandbox_preference(&self) -> codex_sandboxing::SandboxablePreference {
+            codex_sandboxing::SandboxablePreference::Auto
+        }
+    }
+
+    impl crate::tools::sandboxing::ToolRuntime<(), ()> for PreflightProbeRuntime {
+        fn preflight_spec(&self, _req: &()) -> Option<crate::tools::preflight::ToolPreflightSpec> {
+            Some(crate::tools::preflight::ToolPreflightSpec {
+                subject: crate::tools::preflight::ToolPreflightSubject::Command {
+                    command: vec![
+                        "gh".to_string(),
+                        "pr".to_string(),
+                        "merge".to_string(),
+                        "123".to_string(),
+                    ],
+                    cwd: codex_utils_absolute_path::AbsolutePathBuf::try_from("/repo")
+                        .expect("absolute path"),
+                },
+                sandbox_bypass_requested: false,
+            })
+        }
+
+        async fn run(
+            &mut self,
+            _req: &(),
+            _attempt: &crate::tools::sandboxing::SandboxAttempt<'_>,
+            _ctx: &crate::tools::sandboxing::ToolCtx,
+        ) -> Result<(), crate::tools::sandboxing::ToolError> {
+            self.ran = true;
+            Ok(())
+        }
+    }
+
+    let (session, turn, rx) = make_session_and_context_with_rx().await;
+    let mut orchestrator = crate::tools::orchestrator::ToolOrchestrator::new();
+    let mut tool = PreflightProbeRuntime::default();
+    let tool_ctx = crate::tools::sandboxing::ToolCtx {
+        session: Arc::clone(&session),
+        turn: Arc::clone(&turn),
+        call_id: "probe-call".to_string(),
+        tool_name: "probe".to_string(),
+    };
+
+    let result = orchestrator
+        .run(
+            &mut tool,
+            &(),
+            &tool_ctx,
+            turn.as_ref(),
+            AskForApproval::Never,
+        )
+        .await;
+
+    match result {
+        Err(crate::tools::sandboxing::ToolError::Rejected(reason)) => {
+            assert!(reason.contains("loaded method state"));
+            assert!(reason.contains("evidence:task-scope"));
+        }
+        _ => panic!("expected preflight rejection"),
+    }
+    assert!(!tool.ran, "runtime must not run after a preflight block");
+
+    let deadline = StdDuration::from_secs(2);
+    let start = std::time::Instant::now();
+    let event = loop {
+        let remaining = deadline.saturating_sub(start.elapsed());
+        let evt = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .expect("timeout waiting for preflight event")
+            .expect("event");
+        match evt.msg {
+            EventMsg::AegisPreflightDecision(event) => break event,
+            _ => continue,
+        }
+    };
+
+    assert_eq!(event.call_id, "probe-call");
+    assert_eq!(event.tool_name, "probe");
+    assert_eq!(
+        event.verdict,
+        codex_protocol::protocol::AegisPreflightVerdict::Block
+    );
+    assert_eq!(
+        event.required_evidence_ids,
+        vec!["evidence:task-scope".to_string()]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn workspace_write_turns_continue_to_expose_managed_network_proxy() -> anyhow::Result<()> {
     let sandbox_policy = SandboxPolicy::new_workspace_write_policy();
     let network_spec = crate::config::NetworkProxySpec::from_config_and_constraints(

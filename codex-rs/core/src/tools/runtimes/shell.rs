@@ -22,6 +22,8 @@ use crate::sandboxing::execute_env;
 use crate::shell::ShellType;
 use crate::tools::network_approval::NetworkApprovalMode;
 use crate::tools::network_approval::NetworkApprovalSpec;
+use crate::tools::preflight::ToolPreflightSpec;
+use crate::tools::preflight::ToolPreflightSubject;
 use crate::tools::runtimes::build_sandbox_command;
 use crate::tools::runtimes::exec_env_for_sandbox_permissions;
 use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
@@ -219,6 +221,23 @@ impl Approvable<ShellRequest> for ShellRuntime {
 }
 
 impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
+    fn preflight_spec(&self, req: &ShellRequest) -> Option<ToolPreflightSpec> {
+        Some(ToolPreflightSpec {
+            subject: ToolPreflightSubject::Command {
+                command: req.command.clone(),
+                cwd: req.cwd.clone(),
+            },
+            sandbox_bypass_requested: req.sandbox_permissions.requires_escalated_permissions()
+                || matches!(
+                    req.exec_approval_requirement,
+                    ExecApprovalRequirement::Skip {
+                        bypass_sandbox: true,
+                        ..
+                    }
+                ),
+        })
+    }
+
     fn network_approval_spec(
         &self,
         req: &ShellRequest,

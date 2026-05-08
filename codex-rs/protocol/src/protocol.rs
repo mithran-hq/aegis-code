@@ -1350,6 +1350,9 @@ pub enum EventMsg {
     /// Notification that the server is about to execute a command.
     ExecCommandBegin(ExecCommandBeginEvent),
 
+    /// Aegis preflight gate decision before a tool call can mutate state.
+    AegisPreflightDecision(AegisPreflightDecisionEvent),
+
     /// Incremental chunk of output from a running command.
     ExecCommandOutputDelta(ExecCommandOutputDeltaEvent),
 
@@ -3065,6 +3068,33 @@ pub struct ExecCommandBeginEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub interaction_input: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AegisPreflightVerdict {
+    Allow,
+    Block,
+    RequireConfirmation,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct AegisPreflightDecisionEvent {
+    pub call_id: String,
+    pub turn_id: String,
+    pub tool_name: String,
+    pub verdict: AegisPreflightVerdict,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub risk_category: Option<crate::aegis_secret_policy::AegisSecretRiskCategory>,
+    pub reason: String,
+    #[serde(default)]
+    pub required_evidence_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<Vec<String>>,
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]

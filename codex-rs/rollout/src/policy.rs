@@ -127,6 +127,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
         | EventMsg::CollabWaitingEnd(_)
         | EventMsg::CollabCloseEnd(_)
         | EventMsg::CollabResumeEnd(_)
+        | EventMsg::AegisPreflightDecision(_)
         | EventMsg::DynamicToolCallRequest(_)
         | EventMsg::DynamicToolCallResponse(_) => Some(EventPersistenceMode::Extended),
         EventMsg::Warning(_)

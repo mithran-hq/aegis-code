@@ -7,6 +7,8 @@ use crate::exec::is_likely_sandbox_denied;
 use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::review_approval_request;
 use crate::tools::hook_names::HookToolName;
+use crate::tools::preflight::ToolPreflightSpec;
+use crate::tools::preflight::ToolPreflightSubject;
 use crate::tools::sandboxing::Approvable;
 use crate::tools::sandboxing::ApprovalCtx;
 use crate::tools::sandboxing::ExecApprovalRequirement;
@@ -192,6 +194,17 @@ impl Approvable<ApplyPatchRequest> for ApplyPatchRuntime {
 }
 
 impl ToolRuntime<ApplyPatchRequest, ApplyPatchRuntimeOutput> for ApplyPatchRuntime {
+    fn preflight_spec(&self, req: &ApplyPatchRequest) -> Option<ToolPreflightSpec> {
+        Some(ToolPreflightSpec {
+            subject: ToolPreflightSubject::FileSystemWrite {
+                cwd: req.action.cwd.clone(),
+                paths: req.file_paths.clone(),
+                change_count: req.changes.len(),
+            },
+            sandbox_bypass_requested: false,
+        })
+    }
+
     async fn run(
         &mut self,
         req: &ApplyPatchRequest,

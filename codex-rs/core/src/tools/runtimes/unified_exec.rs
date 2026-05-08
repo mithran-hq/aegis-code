@@ -21,6 +21,8 @@ use crate::sandboxing::SandboxPermissions;
 use crate::shell::ShellType;
 use crate::tools::network_approval::NetworkApprovalMode;
 use crate::tools::network_approval::NetworkApprovalSpec;
+use crate::tools::preflight::ToolPreflightSpec;
+use crate::tools::preflight::ToolPreflightSubject;
 use crate::tools::runtimes::build_sandbox_command;
 use crate::tools::runtimes::exec_env_for_sandbox_permissions;
 use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
@@ -223,6 +225,23 @@ impl Approvable<UnifiedExecRequest> for UnifiedExecRuntime<'_> {
 }
 
 impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRuntime<'a> {
+    fn preflight_spec(&self, req: &UnifiedExecRequest) -> Option<ToolPreflightSpec> {
+        Some(ToolPreflightSpec {
+            subject: ToolPreflightSubject::Command {
+                command: req.command.clone(),
+                cwd: req.cwd.clone(),
+            },
+            sandbox_bypass_requested: req.sandbox_permissions.requires_escalated_permissions()
+                || matches!(
+                    req.exec_approval_requirement,
+                    ExecApprovalRequirement::Skip {
+                        bypass_sandbox: true,
+                        ..
+                    }
+                ),
+        })
+    }
+
     fn sandbox_cwd<'b>(&self, req: &'b UnifiedExecRequest) -> Option<&'b AbsolutePathBuf> {
         Some(&req.cwd)
     }

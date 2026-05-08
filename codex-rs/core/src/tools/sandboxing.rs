@@ -11,6 +11,7 @@ use crate::session::turn_context::TurnContext;
 use crate::state::SessionServices;
 use crate::tools::hook_names::HookToolName;
 use crate::tools::network_approval::NetworkApprovalSpec;
+use crate::tools::preflight::ToolPreflightSpec;
 use codex_network_proxy::NetworkProxy;
 use codex_protocol::approvals::ExecPolicyAmendment;
 use codex_protocol::approvals::NetworkApprovalContext;
@@ -354,6 +355,10 @@ pub(crate) enum ToolError {
 }
 
 pub(crate) trait ToolRuntime<Req, Out>: Approvable<Req> + Sandboxable {
+    fn preflight_spec(&self, _req: &Req) -> Option<ToolPreflightSpec> {
+        None
+    }
+
     fn network_approval_spec(&self, _req: &Req, _ctx: &ToolCtx) -> Option<NetworkApprovalSpec> {
         None
     }
