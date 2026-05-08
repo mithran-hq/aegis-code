@@ -390,6 +390,7 @@ impl ToolEmitter {
     }
 }
 
+#[derive(Clone, Copy)]
 struct ExecCommandInput<'a> {
     command: &'a [String],
     cwd: &'a AbsolutePathBuf,
@@ -463,6 +464,15 @@ async fn emit_exec_stage(
                 },
             };
             emit_exec_end(ctx, exec_input, exec_result).await;
+            ctx.session
+                .record_completed_evidence_command(
+                    ctx.turn,
+                    ctx.call_id,
+                    exec_input.command,
+                    exec_input.cwd,
+                    &output,
+                )
+                .await;
         }
         ToolEventStage::Failure(ToolEventFailure::Message(message)) => {
             let text = message.to_string();

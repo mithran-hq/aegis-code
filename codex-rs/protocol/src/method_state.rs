@@ -51,11 +51,11 @@ impl MethodState {
             .filter(|requirement| {
                 !self.evidence.iter().any(|evidence| {
                     let satisfies_requirement = evidence.requirement_ids.contains(&requirement.id);
-                    let has_receipt = evidence.receipt.is_some();
+                    let has_successful_receipt = evidence.has_successful_receipt();
                     let cited_by_closure = closure_evidence_ids
                         .map(|ids| ids.iter().any(|id| id == &evidence.id))
                         .unwrap_or(true);
-                    satisfies_requirement && has_receipt && cited_by_closure
+                    satisfies_requirement && has_successful_receipt && cited_by_closure
                 })
             })
             .cloned()
@@ -74,9 +74,9 @@ impl MethodState {
             return false;
         }
         closure.evidence_ids.iter().all(|id| {
-            self.evidence
-                .iter()
-                .any(|evidence| evidence.id.as_str() == id.as_str() && evidence.receipt.is_some())
+            self.evidence.iter().any(|evidence| {
+                evidence.id.as_str() == id.as_str() && evidence.has_successful_receipt()
+            })
         })
     }
 
@@ -248,6 +248,12 @@ pub struct MethodEvidenceRequirement {
     pub summary: String,
     #[serde(default)]
     pub required: bool,
+    #[serde(default)]
+    pub commands: Vec<String>,
+    #[serde(default)]
+    pub claim_ids: Vec<String>,
+    #[serde(default)]
+    pub falsifier_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -269,6 +275,14 @@ pub struct MethodEvidence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub receipt: Option<MethodEvidenceReceipt>,
+}
+
+impl MethodEvidence {
+    pub fn has_successful_receipt(&self) -> bool {
+        self.receipt.as_ref().is_some_and(|receipt| {
+            receipt.exit_status.exit_code == Some(0) && !receipt.exit_status.timed_out
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -759,6 +773,9 @@ mod tests {
                 id: "requirement:serialization".to_string(),
                 summary: "Serialization round trip passes".to_string(),
                 required: true,
+                commands: vec!["cargo test -p codex-protocol method_state".to_string()],
+                claim_ids: vec!["claim:model-exists".to_string()],
+                falsifier_ids: vec!["falsifier:not-reusable".to_string()],
             }],
             evidence: vec![MethodEvidence {
                 id: "evidence:test".to_string(),
@@ -893,6 +910,46 @@ mod tests {
             "requirement:serialization"
         );
         assert!(!state.is_closure_valid());
+    }
+
+    #[test]
+    fn closed_state_with_failed_required_receipt_is_invalid() {
+        let mut state = base_state(MethodWorkStatus::Closed);
+        state.evidence[0]
+            .receipt
+            .as_mut()
+            .expect("receipt")
+            .exit_status
+            .exit_code = Some(101);
+        state.closure = Some(MethodClosureState {
+            closed_at_unix_seconds: 1_779_999_200,
+            summary: "Failed tests do not close required evidence".to_string(),
+            evidence_ids: vec!["evidence:test".to_string()],
+            review_finding_ids: vec!["finding:none".to_string()],
+            closed_by: Some("codex".to_string()),
+        });
+
+        assert_eq!(
+            state.closure_evidence_gaps()[0].id,
+            "requirement:serialization"
+        );
+        assert!(!state.is_closure_valid());
+    }
+
+    #[test]
+    fn evidence_requirement_defaults_accept_old_json() {
+        let json = r#"{
+            "id": "requirement:old",
+            "summary": "Old persisted requirement",
+            "required": true
+        }"#;
+
+        let requirement: MethodEvidenceRequirement =
+            serde_json::from_str(json).expect("old requirement shape deserializes");
+        assert_eq!(requirement.id, "requirement:old");
+        assert!(requirement.commands.is_empty());
+        assert!(requirement.claim_ids.is_empty());
+        assert!(requirement.falsifier_ids.is_empty());
     }
 
     #[test]

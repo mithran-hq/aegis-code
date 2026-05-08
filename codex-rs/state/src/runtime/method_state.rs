@@ -146,6 +146,9 @@ mod tests {
                 id: "requirement:round-trip".to_string(),
                 summary: "Persistence round-trip passes".to_string(),
                 required: true,
+                commands: Vec::new(),
+                claim_ids: Vec::new(),
+                falsifier_ids: Vec::new(),
             }],
             evidence: vec![MethodEvidence {
                 id: "evidence:round-trip".to_string(),

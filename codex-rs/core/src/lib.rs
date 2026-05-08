@@ -201,4 +201,5 @@ pub use installation_id::resolve_installation_id;
 pub use turn_metadata::build_turn_metadata_header;
 pub mod compact;
 mod memory_usage;
+mod method_evidence;
 pub mod otel_init;

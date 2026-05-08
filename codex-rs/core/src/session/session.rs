@@ -1,11 +1,15 @@
 use super::*;
 use crate::goals::GoalRuntimeState;
+use crate::method_evidence::EvidenceSessionSnapshot;
+use crate::method_evidence::build_method_evidence_for_command;
 use crate::state::MethodStatePersistenceDiagnostic;
 use crate::state::MethodStatePersistenceStatus;
 use codex_git_utils::collect_git_info;
 use codex_protocol::SessionId;
 use codex_protocol::config_types::ServiceTier;
+use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::method_state::METHOD_STATE_SCHEMA_VERSION;
+use codex_protocol::method_state::MethodEvidence;
 use codex_protocol::method_state::MethodIssueRef;
 use codex_protocol::method_state::MethodResumeContext;
 use codex_protocol::method_state::MethodResumeValidityStatus;
@@ -390,6 +394,9 @@ mod method_state_tests {
                 id: "requirement:loader".to_string(),
                 summary: "Loader returns persisted state".to_string(),
                 required: true,
+                commands: Vec::new(),
+                claim_ids: Vec::new(),
+                falsifier_ids: Vec::new(),
             }],
             evidence: vec![MethodEvidence {
                 id: "evidence:loader".to_string(),
@@ -664,6 +671,39 @@ async fn current_method_resume_context(
     }
 }
 
+fn link_method_evidence(method_state: &mut MethodState, evidence: MethodEvidence) {
+    let evidence_id = evidence.id.clone();
+    for claim_id in &evidence.claim_ids {
+        if let Some(claim) = method_state
+            .claims
+            .iter_mut()
+            .find(|claim| claim.id == *claim_id)
+            && !claim.evidence_ids.contains(&evidence_id)
+        {
+            claim.evidence_ids.push(evidence_id.clone());
+        }
+    }
+    for falsifier_id in &evidence.falsifier_ids {
+        if let Some(falsifier) = method_state
+            .falsifiers
+            .iter_mut()
+            .find(|falsifier| falsifier.id == *falsifier_id)
+            && !falsifier.evidence_ids.contains(&evidence_id)
+        {
+            falsifier.evidence_ids.push(evidence_id.clone());
+        }
+    }
+
+    method_state
+        .evidence
+        .retain(|existing| existing.id != evidence_id);
+    method_state.evidence.push(evidence);
+    method_state.provenance.updated_at_unix_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(method_state.provenance.updated_at_unix_seconds);
+}
+
 async fn load_method_state_persistence_status(
     state_db: Option<&codex_state::StateRuntime>,
     thread_id: ThreadId,
@@ -775,6 +815,67 @@ impl Session {
             .await
             .set_method_state_status(status.clone());
         Ok(status)
+    }
+
+    pub(crate) async fn record_completed_evidence_command(
+        &self,
+        turn: &TurnContext,
+        call_id: &str,
+        command: &[String],
+        cwd: &AbsolutePathBuf,
+        output: &ExecToolCallOutput,
+    ) {
+        let (mut method_state, context_pack_requirements, provider, session_id, thread_id) = {
+            let state = self.state.lock().await;
+            let MethodStatePersistenceStatus::Loaded {
+                state: method_state,
+                ..
+            } = state.method_state_status()
+            else {
+                return;
+            };
+            (
+                method_state,
+                state
+                    .session_configuration
+                    .original_config_do_not_use
+                    .context_packs
+                    .active_evidence_requirements(),
+                state.session_configuration.provider.name.clone(),
+                self.session_id().to_string(),
+                self.thread_id().to_string(),
+            )
+        };
+
+        let Some(evidence) = build_method_evidence_for_command(
+            call_id,
+            command,
+            cwd,
+            output,
+            &method_state.evidence_requirements,
+            &context_pack_requirements,
+            EvidenceSessionSnapshot {
+                session_id: Some(session_id),
+                thread_id: Some(thread_id),
+                provider: Some(provider),
+                model: Some(turn.model_info.slug.clone()),
+            },
+        )
+        .await
+        else {
+            return;
+        };
+
+        link_method_evidence(&mut method_state, evidence);
+        if let Err(err) = self.replace_method_state(method_state).await {
+            self.send_event(
+                turn,
+                EventMsg::Warning(WarningEvent {
+                    message: format!("failed to persist method evidence receipt: {err:#}"),
+                }),
+            )
+            .await;
+        }
     }
 
     #[instrument(name = "session_init", level = "info", skip_all)]

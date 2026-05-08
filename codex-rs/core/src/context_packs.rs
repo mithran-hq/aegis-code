@@ -50,6 +50,13 @@ impl ContextPackSet {
             pack_ids,
         })
     }
+
+    pub(crate) fn active_evidence_requirements(&self) -> Vec<EvidenceRequirementInspection> {
+        self.active_packs
+            .iter()
+            .flat_map(|pack| pack.evidence_requirements.iter().cloned())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -204,6 +211,7 @@ struct LoadedContextPack {
     pack_id: String,
     kind: ContextPackKind,
     guidance: Vec<GuidanceToml>,
+    evidence_requirements: Vec<EvidenceRequirementInspection>,
 }
 
 impl LoadedContextPack {
@@ -621,18 +629,7 @@ fn inspection_from_pack(
                 created_at: provenance.created_at.clone(),
                 source_refs: provenance.source_refs.clone().unwrap_or_default(),
             }),
-        evidence_requirements: pack
-            .evidence
-            .as_ref()
-            .and_then(|evidence| evidence.requirements.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|requirement| EvidenceRequirementInspection {
-                id: requirement.id,
-                description: requirement.description,
-                commands: requirement.commands.unwrap_or_default(),
-            })
-            .collect(),
+        evidence_requirements: evidence_requirements_from_pack(pack),
         guidance: show_guidance.then(|| {
             pack.guidance
                 .iter()
@@ -645,6 +642,20 @@ fn inspection_from_pack(
                 .collect()
         }),
     }
+}
+
+fn evidence_requirements_from_pack(pack: &ContextPackToml) -> Vec<EvidenceRequirementInspection> {
+    pack.evidence
+        .as_ref()
+        .and_then(|evidence| evidence.requirements.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|requirement| EvidenceRequirementInspection {
+            id: requirement.id,
+            description: requirement.description,
+            commands: requirement.commands.unwrap_or_default(),
+        })
+        .collect()
 }
 
 fn resolve_record_index(records: &[EditableContextPack], selector: &str) -> anyhow::Result<usize> {
@@ -847,6 +858,7 @@ async fn load_one_context_pack(
                 pack_id: pack.pack_id.clone(),
                 kind: pack.kind,
                 guidance: pack.guidance.clone(),
+                evidence_requirements: evidence_requirements_from_pack(&pack),
             };
             Ok(LoadedPackOutcome::Active {
                 diagnostic: ContextPackDiagnostic {
