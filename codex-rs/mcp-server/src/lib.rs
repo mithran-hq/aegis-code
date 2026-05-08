@@ -29,6 +29,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
 
+mod aegis_tool_config;
 mod codex_tool_config;
 mod codex_tool_runner;
 mod exec_approval;

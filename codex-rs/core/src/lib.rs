@@ -155,6 +155,13 @@ pub use state_db_bridge::StateDbHandle;
 pub use state_db_bridge::init_state_db;
 mod thread_rollout_truncation;
 mod tools;
+pub mod tool_preflight {
+    pub use crate::tools::preflight::ToolPreflightContext;
+    pub use crate::tools::preflight::ToolPreflightDecision;
+    pub use crate::tools::preflight::ToolPreflightSpec;
+    pub use crate::tools::preflight::ToolPreflightSubject;
+    pub use crate::tools::preflight::evaluate_preflight;
+}
 pub(crate) mod turn_diff_tracker;
 mod turn_metadata;
 mod turn_timing;

@@ -32,6 +32,8 @@ use serde_json::json;
 use tokio::sync::Mutex;
 use tokio::task;
 
+use crate::aegis_tool_config::create_aegis_tools;
+use crate::aegis_tool_config::handle_aegis_tool_call;
 use crate::codex_tool_config::CodexToolCallParam;
 use crate::codex_tool_config::CodexToolCallReplyParam;
 use crate::codex_tool_config::create_tool_for_codex_tool_call_param;
@@ -42,6 +44,7 @@ pub(crate) struct MessageProcessor {
     outgoing: Arc<OutgoingMessageSender>,
     initialized: bool,
     arg0_paths: Arg0DispatchPaths,
+    config: Arc<Config>,
     thread_manager: Arc<ThreadManager>,
     running_requests_id_to_codex_uuid: Arc<Mutex<HashMap<RequestId, ThreadId>>>,
 }
@@ -77,6 +80,7 @@ impl MessageProcessor {
             outgoing,
             initialized: false,
             arg0_paths,
+            config,
             thread_manager,
             running_requests_id_to_codex_uuid: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -318,12 +322,15 @@ impl MessageProcessor {
         params: Option<rmcp::model::PaginatedRequestParams>,
     ) {
         tracing::trace!("tools/list -> {params:?}");
+        let mut tools = vec![
+            create_tool_for_codex_tool_call_param(),
+            create_tool_for_codex_tool_call_reply_param(),
+        ];
+        tools.extend(create_aegis_tools());
+
         let result = rmcp::model::ListToolsResult {
             meta: None,
-            tools: vec![
-                create_tool_for_codex_tool_call_param(),
-                create_tool_for_codex_tool_call_reply_param(),
-            ],
+            tools,
             next_cursor: None,
         };
 
@@ -331,7 +338,7 @@ impl MessageProcessor {
     }
 
     async fn handle_call_tool(&self, id: RequestId, params: CallToolRequestParams) {
-        tracing::info!("tools/call -> params: {:?}", params);
+        tracing::info!("tools/call -> name: {}", params.name);
         let CallToolRequestParams {
             name, arguments, ..
         } = params;
@@ -343,6 +350,12 @@ impl MessageProcessor {
                     .await
             }
             _ => {
+                if let Some(result) =
+                    handle_aegis_tool_call(name.as_ref(), arguments, self.config.as_ref())
+                {
+                    self.outgoing.send_response(id, result).await;
+                    return;
+                }
                 let result = CallToolResult {
                     content: vec![rmcp::model::Content::text(format!("Unknown tool '{name}'"))],
                     structured_content: None,
@@ -431,7 +444,7 @@ impl MessageProcessor {
         arguments: Option<rmcp::model::JsonObject>,
     ) {
         let arguments = arguments.map(serde_json::Value::Object);
-        tracing::info!("tools/call -> params: {:?}", arguments);
+        tracing::info!("tools/call -> codex-reply");
 
         // parse arguments
         let codex_tool_call_reply_param: CodexToolCallReplyParam = match arguments {

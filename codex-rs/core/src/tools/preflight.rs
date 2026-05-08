@@ -11,7 +11,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ToolPreflightSubject {
+pub enum ToolPreflightSubject {
     Command {
         command: Vec<String>,
         cwd: AbsolutePathBuf,
@@ -24,24 +24,24 @@ pub(crate) enum ToolPreflightSubject {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ToolPreflightSpec {
-    pub(crate) subject: ToolPreflightSubject,
-    pub(crate) sandbox_bypass_requested: bool,
+pub struct ToolPreflightSpec {
+    pub subject: ToolPreflightSubject,
+    pub sandbox_bypass_requested: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ToolPreflightDecision {
-    pub(crate) verdict: AegisPreflightVerdict,
-    pub(crate) risk_category: Option<AegisSecretRiskCategory>,
-    pub(crate) reason: String,
-    pub(crate) required_evidence_ids: Vec<String>,
+pub struct ToolPreflightDecision {
+    pub verdict: AegisPreflightVerdict,
+    pub risk_category: Option<AegisSecretRiskCategory>,
+    pub reason: String,
+    pub required_evidence_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ToolPreflightContext {
-    pub(crate) method_state_available: bool,
-    pub(crate) method_state_valid: bool,
-    pub(crate) linked_issue_available: bool,
+pub struct ToolPreflightContext {
+    pub method_state_available: bool,
+    pub method_state_valid: bool,
+    pub linked_issue_available: bool,
 }
 
 impl ToolPreflightContext {
@@ -98,7 +98,7 @@ impl ToolPreflightContext {
     }
 }
 
-pub(crate) fn evaluate_preflight(
+pub fn evaluate_preflight(
     spec: &ToolPreflightSpec,
     context: &ToolPreflightContext,
     workspace_cwd: &AbsolutePathBuf,
