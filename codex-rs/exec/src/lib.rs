@@ -13,13 +13,15 @@ pub(crate) mod exec_events;
 pub use cli::Cli;
 pub use cli::Command;
 pub use cli::ReviewArgs;
+use codex_app_server_client::AegisRuntimeConnectArgs;
+use codex_app_server_client::AppServerClient;
+use codex_app_server_client::AppServerEvent;
 use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
 use codex_app_server_client::EnvironmentManager;
 use codex_app_server_client::EnvironmentManagerArgs;
 use codex_app_server_client::ExecServerRuntimePaths;
 use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessClientStartArgs;
-use codex_app_server_client::InProcessServerEvent;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigWarningNotification;
 use codex_app_server_protocol::JSONRPCErrorError;
@@ -59,6 +61,7 @@ use codex_config::LoaderOverrides;
 use codex_config::format_config_error_with_source;
 use codex_core::StateDbHandle;
 use codex_core::check_execpolicy_for_warnings;
+use codex_core::config::AegisAgentRuntimeFailureMode;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
@@ -670,11 +673,8 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     }
 
     let mut request_ids = RequestIdSequencer::new();
-    let mut client = InProcessAppServerClient::start(in_process_start_args)
-        .await
-        .map_err(|err| {
-            anyhow::anyhow!("failed to initialize in-process app-server client: {err}")
-        })?;
+    let mut client =
+        start_app_server_client(in_process_start_args, &config, event_processor.as_mut()).await?;
 
     // Handle resume subcommand through existing `thread/list` + `thread/resume`
     // APIs so exec no longer reaches into rollout storage directly.
@@ -860,10 +860,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         };
 
         match server_event {
-            InProcessServerEvent::ServerRequest(request) => {
+            AppServerEvent::ServerRequest(request) => {
                 handle_server_request(&client, request, &mut error_seen).await;
             }
-            InProcessServerEvent::ServerNotification(mut notification) => {
+            AppServerEvent::ServerNotification(mut notification) => {
                 if let ServerNotification::Error(payload) = &notification {
                     if payload.thread_id == primary_thread_id_for_requests
                         && payload.turn_id == task_id
@@ -913,10 +913,16 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                     }
                 }
             }
-            InProcessServerEvent::Lagged { skipped } => {
+            AppServerEvent::Lagged { skipped } => {
                 let message = lagged_event_warning_message(skipped);
                 warn!("{message}");
                 event_processor.process_warning(message);
+            }
+            AppServerEvent::Disconnected { message } => {
+                error_seen = true;
+                warn!("{message}");
+                event_processor.process_warning(message);
+                break;
             }
         }
     }
@@ -930,6 +936,50 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn start_app_server_client(
+    in_process_start_args: InProcessClientStartArgs,
+    config: &Config,
+    event_processor: &mut dyn EventProcessor,
+) -> anyhow::Result<AppServerClient> {
+    if config
+        .features
+        .enabled(codex_features::Feature::AegisAgentRuntime)
+    {
+        let runtime_args = AegisRuntimeConnectArgs {
+            command: config.aegis_agent_runtime.command.clone(),
+            client_name: in_process_start_args.client_name.clone(),
+            client_version: in_process_start_args.client_version.clone(),
+            experimental_api: in_process_start_args.experimental_api,
+            opt_out_notification_methods: in_process_start_args
+                .opt_out_notification_methods
+                .clone(),
+            channel_capacity: in_process_start_args.channel_capacity,
+        };
+        match codex_app_server_client::AegisRuntimeClient::connect(runtime_args).await {
+            Ok(client) => return Ok(AppServerClient::AegisRuntime(client)),
+            Err(err) => match config.aegis_agent_runtime.failure_mode {
+                AegisAgentRuntimeFailureMode::Fallback => {
+                    let message = format!(
+                        "Aegis Agent Runtime failed to initialize; falling back to native execution: {err}"
+                    );
+                    warn!("{message}");
+                    event_processor.process_warning(message);
+                }
+                AegisAgentRuntimeFailureMode::Require => {
+                    return Err(anyhow::anyhow!(
+                        "failed to initialize required Aegis Agent Runtime: {err}"
+                    ));
+                }
+            },
+        }
+    }
+
+    InProcessAppServerClient::start(in_process_start_args)
+        .await
+        .map(AppServerClient::InProcess)
+        .map_err(|err| anyhow::anyhow!("failed to initialize in-process app-server client: {err}"))
 }
 
 fn thread_start_params_from_config(config: &Config) -> ThreadStartParams {
@@ -1040,7 +1090,7 @@ fn approvals_reviewer_override_from_config(
 }
 
 async fn send_request_with_response<T>(
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     request: ClientRequest,
     method: &str,
 ) -> Result<T, String>
@@ -1221,7 +1271,7 @@ fn should_process_notification(
 
 async fn maybe_backfill_turn_completed_items(
     thread_ephemeral: bool,
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     request_ids: &mut RequestIdSequencer,
     notification: &mut ServerNotification,
 ) {
@@ -1332,7 +1382,7 @@ fn cwds_match(current_cwd: &Path, session_cwd: &Path) -> bool {
 }
 
 async fn resolve_resume_thread_id(
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     config: &Config,
     state_db: Option<&StateDbHandle>,
     args: &crate::cli::ResumeArgs,
@@ -1465,7 +1515,7 @@ fn canceled_mcp_server_elicitation_response() -> Result<Value, String> {
 }
 
 async fn request_shutdown(
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     request_ids: &mut RequestIdSequencer,
     thread_id: &str,
 ) -> Result<(), String> {
@@ -1481,7 +1531,7 @@ async fn request_shutdown(
 }
 
 async fn resolve_server_request(
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     request_id: RequestId,
     value: serde_json::Value,
     method: &str,
@@ -1493,7 +1543,7 @@ async fn resolve_server_request(
 }
 
 async fn reject_server_request(
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     request_id: RequestId,
     method: &str,
     reason: String,
@@ -1524,7 +1574,7 @@ fn server_request_method_name(request: &ServerRequest) -> String {
 }
 
 async fn handle_server_request(
-    client: &InProcessAppServerClient,
+    client: &AppServerClient,
     request: ServerRequest,
     error_seen: &mut bool,
 ) {

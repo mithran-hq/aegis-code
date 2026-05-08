@@ -62,6 +62,7 @@ use codex_config::types::WindowsSandboxModeToml;
 use codex_core_plugins::PluginsConfigInput;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::LOCAL_FS;
+use codex_features::AegisAgentRuntimeConfigToml;
 use codex_features::AppsMcpPathOverrideConfigToml;
 use codex_features::Feature;
 use codex_features::FeatureConfigSource;
@@ -177,6 +178,7 @@ pub(crate) const AGENTS_MD_MAX_BYTES: usize = DEFAULT_PROJECT_DOC_MAX_BYTES; // 
 pub(crate) const DEFAULT_AGENT_MAX_THREADS: Option<usize> = Some(6);
 pub(crate) const DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION: usize = 4;
 pub(crate) const DEFAULT_MULTI_AGENT_V2_MIN_WAIT_TIMEOUT_MS: i64 = 10_000;
+pub(crate) const DEFAULT_AEGIS_AGENT_RUNTIME_COMMAND: &[&str] = &["aegis-agent-runtime", "stdio"];
 pub(crate) const MAX_MULTI_AGENT_V2_WAIT_TIMEOUT_MS: i64 = 3600 * 1000;
 pub(crate) const DEFAULT_AGENT_MAX_DEPTH: i32 = 1;
 pub(crate) const DEFAULT_AGENT_JOB_MAX_RUNTIME_SECONDS: Option<u64> = None;
@@ -784,6 +786,9 @@ pub struct Config {
     /// Settings specific to the task-path-based multi-agent tool surface.
     pub multi_agent_v2: MultiAgentV2Config,
 
+    /// Settings for the optional Aegis Agent Runtime subprocess substrate.
+    pub aegis_agent_runtime: AegisAgentRuntimeConfig,
+
     /// Centralized feature flags; source of truth for feature gating.
     pub features: ManagedFeatures,
 
@@ -850,6 +855,46 @@ impl Default for MultiAgentV2Config {
             root_agent_usage_hint_text: None,
             subagent_usage_hint_text: None,
             hide_spawn_agent_metadata: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AegisAgentRuntimeFailureMode {
+    Fallback,
+    Require,
+}
+
+impl AegisAgentRuntimeFailureMode {
+    fn parse(value: &str) -> std::io::Result<Self> {
+        match value {
+            "fallback" => Ok(Self::Fallback),
+            "require" => Ok(Self::Require),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "features.aegis_agent_runtime.failure_mode must be `fallback` or `require`, got `{value}`"
+                ),
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AegisAgentRuntimeConfig {
+    pub command: Vec<String>,
+    pub failure_mode: AegisAgentRuntimeFailureMode,
+}
+
+impl Default for AegisAgentRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            command: DEFAULT_AEGIS_AGENT_RUNTIME_COMMAND
+                .iter()
+                .map(|part| (*part).to_string())
+                .collect(),
+            failure_mode: AegisAgentRuntimeFailureMode::Fallback,
         }
     }
 }
@@ -2011,6 +2056,39 @@ fn resolve_multi_agent_v2_config(
     }
 }
 
+fn resolve_aegis_agent_runtime_config(
+    config_toml: &ConfigToml,
+    config_profile: &ConfigProfile,
+) -> std::io::Result<AegisAgentRuntimeConfig> {
+    let base = aegis_agent_runtime_toml_config(config_toml.features.as_ref());
+    let profile = aegis_agent_runtime_toml_config(config_profile.features.as_ref());
+    let default = AegisAgentRuntimeConfig::default();
+
+    let command = profile
+        .and_then(|config| config.command.as_ref())
+        .or_else(|| base.and_then(|config| config.command.as_ref()))
+        .cloned()
+        .unwrap_or(default.command);
+    if command.is_empty() || command.iter().any(|part| part.trim().is_empty()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "features.aegis_agent_runtime.command must contain at least one non-empty argv element",
+        ));
+    }
+
+    let failure_mode = profile
+        .and_then(|config| config.failure_mode.as_deref())
+        .or_else(|| base.and_then(|config| config.failure_mode.as_deref()))
+        .map(AegisAgentRuntimeFailureMode::parse)
+        .transpose()?
+        .unwrap_or(default.failure_mode);
+
+    Ok(AegisAgentRuntimeConfig {
+        command,
+        failure_mode,
+    })
+}
+
 fn resolve_terminal_resize_reflow_config(config_toml: &ConfigToml) -> TerminalResizeReflowConfig {
     let Some(tui) = config_toml.tui.as_ref() else {
         return TerminalResizeReflowConfig::default();
@@ -2036,6 +2114,15 @@ fn apps_mcp_path_override_toml_config(
     features: Option<&FeaturesToml>,
 ) -> Option<&AppsMcpPathOverrideConfigToml> {
     match features?.apps_mcp_path_override.as_ref()? {
+        FeatureToml::Enabled(_) => None,
+        FeatureToml::Config(config) => Some(config),
+    }
+}
+
+fn aegis_agent_runtime_toml_config(
+    features: Option<&FeaturesToml>,
+) -> Option<&AegisAgentRuntimeConfigToml> {
+    match features?.aegis_agent_runtime.as_ref()? {
         FeatureToml::Enabled(_) => None,
         FeatureToml::Config(config) => Some(config),
     }
@@ -2564,6 +2651,7 @@ impl Config {
             .unwrap_or(WebSearchMode::Cached);
         let web_search_config = resolve_web_search_config(&cfg, &config_profile);
         let multi_agent_v2 = resolve_multi_agent_v2_config(&cfg, &config_profile);
+        let aegis_agent_runtime = resolve_aegis_agent_runtime_config(&cfg, &config_profile)?;
         let apps_mcp_path_override = if features.enabled(Feature::AppsMcpPathOverride) {
             let base = apps_mcp_path_override_toml_config(cfg.features.as_ref());
             let profile = apps_mcp_path_override_toml_config(config_profile.features.as_ref());
@@ -3145,6 +3233,7 @@ impl Config {
             background_terminal_max_timeout,
             ghost_snapshot,
             multi_agent_v2,
+            aegis_agent_runtime,
             features,
             suppress_unstable_features_warning: cfg
                 .suppress_unstable_features_warning

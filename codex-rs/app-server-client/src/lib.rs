@@ -15,6 +15,7 @@
 //! bridging async `mpsc` channels on both sides. Queues are bounded so overload
 //! surfaces as channel-full errors rather than unbounded memory growth.
 
+mod aegis_runtime;
 mod remote;
 
 use std::error::Error;
@@ -62,6 +63,8 @@ use tracing::warn;
 
 pub use crate::remote::RemoteAppServerClient;
 pub use crate::remote::RemoteAppServerConnectArgs;
+pub use aegis_runtime::AegisRuntimeClient;
+pub use aegis_runtime::AegisRuntimeConnectArgs;
 
 /// Transitional access to core-only embedded app-server types.
 ///
@@ -469,11 +472,13 @@ pub struct InProcessAppServerRequestHandle {
 pub enum AppServerRequestHandle {
     InProcess(InProcessAppServerRequestHandle),
     Remote(crate::remote::RemoteAppServerRequestHandle),
+    AegisRuntime(crate::aegis_runtime::AegisRuntimeRequestHandle),
 }
 
 pub enum AppServerClient {
     InProcess(InProcessAppServerClient),
     Remote(RemoteAppServerClient),
+    AegisRuntime(AegisRuntimeClient),
 }
 
 impl InProcessAppServerClient {
@@ -838,6 +843,7 @@ impl AppServerRequestHandle {
         match self {
             Self::InProcess(handle) => handle.request(request).await,
             Self::Remote(handle) => handle.request(request).await,
+            Self::AegisRuntime(handle) => handle.request(request).await,
         }
     }
 
@@ -848,6 +854,7 @@ impl AppServerRequestHandle {
         match self {
             Self::InProcess(handle) => handle.request_typed(request).await,
             Self::Remote(handle) => handle.request_typed(request).await,
+            Self::AegisRuntime(handle) => handle.request_typed(request).await,
         }
     }
 }
@@ -857,6 +864,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.request(request).await,
             Self::Remote(client) => client.request(request).await,
+            Self::AegisRuntime(client) => client.request(request).await,
         }
     }
 
@@ -867,6 +875,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.request_typed(request).await,
             Self::Remote(client) => client.request_typed(request).await,
+            Self::AegisRuntime(client) => client.request_typed(request).await,
         }
     }
 
@@ -874,6 +883,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.notify(notification).await,
             Self::Remote(client) => client.notify(notification).await,
+            Self::AegisRuntime(client) => client.notify(notification).await,
         }
     }
 
@@ -885,6 +895,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.resolve_server_request(request_id, result).await,
             Self::Remote(client) => client.resolve_server_request(request_id, result).await,
+            Self::AegisRuntime(client) => client.resolve_server_request(request_id, result).await,
         }
     }
 
@@ -896,6 +907,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.reject_server_request(request_id, error).await,
             Self::Remote(client) => client.reject_server_request(request_id, error).await,
+            Self::AegisRuntime(client) => client.reject_server_request(request_id, error).await,
         }
     }
 
@@ -903,6 +915,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.next_event().await.map(Into::into),
             Self::Remote(client) => client.next_event().await,
+            Self::AegisRuntime(client) => client.next_event().await,
         }
     }
 
@@ -910,6 +923,7 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => client.shutdown().await,
             Self::Remote(client) => client.shutdown().await,
+            Self::AegisRuntime(client) => client.shutdown().await,
         }
     }
 
@@ -917,6 +931,9 @@ impl AppServerClient {
         match self {
             Self::InProcess(client) => AppServerRequestHandle::InProcess(client.request_handle()),
             Self::Remote(client) => AppServerRequestHandle::Remote(client.request_handle()),
+            Self::AegisRuntime(client) => {
+                AppServerRequestHandle::AegisRuntime(client.request_handle())
+            }
         }
     }
 }

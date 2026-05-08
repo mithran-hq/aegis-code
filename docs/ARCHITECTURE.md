@@ -88,6 +88,12 @@ method state, and the reason the command is sensitive.
 The v1 broker request and response contract is defined in
 [Aegis Secret Policy Contract](aegis-secret-policy.md).
 
+## Aegis Agent Runtime
+
+The optional runtime subprocess adapter is documented in
+[Aegis Agent Runtime Adapter](aegis-agent-runtime.md). It is feature/config
+gated and preserves native execution as the default.
+
 ## Provider Strategy
 
 The first provider contract should preserve upstream OpenAI-compatible behavior.

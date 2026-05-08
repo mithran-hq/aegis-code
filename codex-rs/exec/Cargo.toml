@@ -30,6 +30,7 @@ codex-cloud-requirements = { workspace = true }
 codex-config = { workspace = true }
 codex-core = { workspace = true }
 codex-feedback = { workspace = true }
+codex-features = { workspace = true }
 codex-git-utils = { workspace = true }
 codex-login = { workspace = true }
 codex-model-provider-info = { workspace = true }

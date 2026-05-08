@@ -16,6 +16,7 @@ use toml::Table;
 
 mod feature_configs;
 mod legacy;
+pub use feature_configs::AegisAgentRuntimeConfigToml;
 pub use feature_configs::AppsMcpPathOverrideConfigToml;
 pub use feature_configs::MultiAgentV2ConfigToml;
 use legacy::LegacyFeatureToggles;
@@ -237,6 +238,8 @@ pub enum Feature {
     RemoteCompactionV2,
     /// Enable workspace dependency support.
     WorkspaceDependencies,
+    /// Route sessions through an optional Aegis Agent Runtime subprocess.
+    AegisAgentRuntime,
 }
 
 impl Feature {
@@ -574,6 +577,8 @@ pub struct FeaturesToml {
     pub multi_agent_v2: Option<FeatureToml<MultiAgentV2ConfigToml>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apps_mcp_path_override: Option<FeatureToml<AppsMcpPathOverrideConfigToml>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aegis_agent_runtime: Option<FeatureToml<AegisAgentRuntimeConfigToml>>,
     /// Boolean feature toggles keyed by canonical or legacy feature name.
     #[serde(flatten)]
     entries: BTreeMap<String, bool>,
@@ -599,6 +604,13 @@ impl FeaturesToml {
         {
             entries.insert(Feature::AppsMcpPathOverride.key().to_string(), enabled);
         }
+        if let Some(enabled) = self
+            .aegis_agent_runtime
+            .as_ref()
+            .and_then(FeatureToml::enabled)
+        {
+            entries.insert(Feature::AegisAgentRuntime.key().to_string(), enabled);
+        }
         entries
     }
 
@@ -606,6 +618,7 @@ impl FeaturesToml {
         let Self {
             multi_agent_v2,
             apps_mcp_path_override,
+            aegis_agent_runtime,
             entries,
         } = self;
         for key in legacy::legacy_feature_keys() {
@@ -617,6 +630,8 @@ impl FeaturesToml {
                 materialize_resolved_feature_enabled(multi_agent_v2, enabled);
             } else if spec.id == Feature::AppsMcpPathOverride {
                 materialize_resolved_feature_enabled(apps_mcp_path_override, enabled);
+            } else if spec.id == Feature::AegisAgentRuntime {
+                materialize_resolved_feature_enabled(aegis_agent_runtime, enabled);
             } else {
                 entries.insert(spec.key.to_string(), enabled);
             }
@@ -1158,6 +1173,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "workspace_dependencies",
         stage: Stage::Stable,
         default_enabled: true,
+    },
+    FeatureSpec {
+        id: Feature::AegisAgentRuntime,
+        key: "aegis_agent_runtime",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
     },
 ];
 

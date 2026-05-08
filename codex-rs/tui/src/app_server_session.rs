@@ -190,7 +190,10 @@ impl AppServerSession {
     }
 
     pub(crate) fn is_remote(&self) -> bool {
-        matches!(self.client, AppServerClient::Remote(_))
+        matches!(
+            self.client,
+            AppServerClient::Remote(_) | AppServerClient::AegisRuntime(_)
+        )
     }
 
     pub(crate) async fn bootstrap(&mut self, config: &Config) -> Result<AppServerBootstrap> {
@@ -418,7 +421,9 @@ impl AppServerSession {
     fn thread_params_mode(&self) -> ThreadParamsMode {
         match &self.client {
             AppServerClient::InProcess(_) => ThreadParamsMode::Embedded,
-            AppServerClient::Remote(_) => ThreadParamsMode::Remote,
+            AppServerClient::Remote(_) | AppServerClient::AegisRuntime(_) => {
+                ThreadParamsMode::Remote
+            }
         }
     }
 

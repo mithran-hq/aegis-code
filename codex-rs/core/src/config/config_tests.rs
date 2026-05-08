@@ -7036,6 +7036,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             background_terminal_max_timeout: DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS,
             ghost_snapshot: GhostSnapshotConfig::default(),
             multi_agent_v2: MultiAgentV2Config::default(),
+            aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
             features: Features::with_defaults().into(),
             suppress_unstable_features_warning: false,
             active_profile: Some("o3".to_string()),
@@ -7296,6 +7297,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         background_terminal_max_timeout: DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS,
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
+        aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("gpt3".to_string()),
@@ -7455,6 +7457,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         background_terminal_max_timeout: DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS,
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
+        aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("zdr".to_string()),
@@ -7599,6 +7602,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         background_terminal_max_timeout: DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS,
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
+        aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("gpt5".to_string()),
@@ -9128,6 +9132,123 @@ hide_spawn_agent_metadata = true
         Some("Subagent guidance.")
     );
     assert!(config.multi_agent_v2.hide_spawn_agent_metadata);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn aegis_agent_runtime_config_from_feature_table() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"[features.aegis_agent_runtime]
+enabled = true
+command = ["/tmp/fake-runtime", "stdio"]
+failure_mode = "require"
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert!(config.features.enabled(Feature::AegisAgentRuntime));
+    assert_eq!(
+        config.aegis_agent_runtime.command,
+        vec!["/tmp/fake-runtime".to_string(), "stdio".to_string()]
+    );
+    assert_eq!(
+        config.aegis_agent_runtime.failure_mode,
+        AegisAgentRuntimeFailureMode::Require
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_aegis_agent_runtime_config_overrides_base() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"profile = "runtime"
+
+[features.aegis_agent_runtime]
+command = ["base-runtime", "stdio"]
+failure_mode = "fallback"
+
+[profiles.runtime.features.aegis_agent_runtime]
+enabled = true
+command = ["profile-runtime", "stdio"]
+failure_mode = "require"
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert!(config.features.enabled(Feature::AegisAgentRuntime));
+    assert_eq!(
+        config.aegis_agent_runtime.command,
+        vec!["profile-runtime".to_string(), "stdio".to_string()]
+    );
+    assert_eq!(
+        config.aegis_agent_runtime.failure_mode,
+        AegisAgentRuntimeFailureMode::Require
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn aegis_agent_runtime_rejects_invalid_failure_mode() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"[features.aegis_agent_runtime]
+enabled = true
+failure_mode = "silent"
+"#,
+    )?;
+
+    let err = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await
+        .expect_err("invalid failure mode should be rejected");
+
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.to_string(),
+        "features.aegis_agent_runtime.failure_mode must be `fallback` or `require`, got `silent`"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn aegis_agent_runtime_defaults_to_disabled_fallback() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert!(!config.features.enabled(Feature::AegisAgentRuntime));
+    assert_eq!(
+        config.aegis_agent_runtime.command,
+        vec!["aegis-agent-runtime".to_string(), "stdio".to_string()]
+    );
+    assert_eq!(
+        config.aegis_agent_runtime.failure_mode,
+        AegisAgentRuntimeFailureMode::Fallback
+    );
 
     Ok(())
 }
