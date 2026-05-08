@@ -29,7 +29,7 @@ at field meaning.
   },
   "task": {
     "repository": "mithran-hq/aegis-code",
-    "branch": "master",
+    "branch": "main",
     "commit": "abc123",
     "linked_issue": {
       "provider": "git_hub",

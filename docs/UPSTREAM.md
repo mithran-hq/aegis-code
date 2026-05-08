@@ -10,7 +10,7 @@ plan, and perform future upstream sync work without losing Aegis-owned changes.
 | Upstream repository | `https://github.com/openai/codex` |
 | Upstream default branch | `main` |
 | Local repository | `https://github.com/mithran-hq/aegis-code` |
-| Local default branch | `master` |
+| Local default branch | `main` |
 | Imported upstream commit | `f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781` |
 | Import record | `docs/UPSTREAM_IMPORT.md` |
 
@@ -66,12 +66,12 @@ issue.
 ## Sync Branch Policy
 
 Real sync work must happen in a short-lived child-task branch from current
-`origin/master`:
+`origin/main`:
 
 ```bash
-git fetch origin master
-git switch master
-git pull --ff-only origin master
+git fetch origin main
+git switch main
+git pull --ff-only origin main
 git switch -c upstream-sync/YYYY-MM-DD
 git fetch upstream main
 ```
@@ -83,7 +83,7 @@ resolution becomes hard to review, split the work into multiple sync issues.
 ## Sync Application Policy
 
 Because the import is a snapshot, do not run `git merge upstream/main` from
-`master`; the histories do not share a local merge base. Apply the upstream
+`main`; the histories do not share a local merge base. Apply the upstream
 delta from the imported upstream commit to the chosen upstream target:
 
 ```bash
@@ -123,10 +123,10 @@ for future upstream syncs.
 
 ## Release Branch Policy
 
-Normal development and upstream sync work lands on `master`. Cut releases from
-`master` after local and CI verification. Use `release/vX.Y.Z` only for
+Normal development and upstream sync work lands on `main`. Cut releases from
+`main` after local and CI verification. Use `release/vX.Y.Z` only for
 stabilization or hotfix work that must be isolated from ongoing development, and
-merge any release fixes back to `master`.
+merge any release fixes back to `main`.
 
 ## Sync Evidence
 
