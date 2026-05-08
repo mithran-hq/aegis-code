@@ -27,13 +27,24 @@ use codex_app_server_protocol::RateLimitWindow;
 use codex_model_provider_info::ModelProviderAwsAuthInfo;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::ThreadId;
+use codex_protocol::aegis_secret_policy::AegisSecretRiskCategory;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::method_state::MethodContextPackStatusSummary;
+use codex_protocol::method_state::MethodIssueProvider;
+use codex_protocol::method_state::MethodLinkedIssue;
+use codex_protocol::method_state::MethodResumeValidityReason;
+use codex_protocol::method_state::MethodResumeValidityStatus;
+use codex_protocol::method_state::MethodStatusKind;
+use codex_protocol::method_state::MethodStatusSummary;
+use codex_protocol::method_state::MethodWorkStatus;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::ActivePermissionProfileModification;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::permissions::NetworkSandboxPolicy;
+use codex_protocol::protocol::AegisPreflightDecisionEvent;
+use codex_protocol::protocol::AegisPreflightVerdict;
 use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
 use ratatui::prelude::*;
@@ -182,6 +193,100 @@ fn permissions_text_for(config: &Config) -> Option<String> {
                 .map(str::trim)
                 .map(ToString::to_string)
         })
+}
+
+#[tokio::test]
+async fn status_card_renders_redacted_method_and_secret_summary() {
+    let temp_home = TempDir::new().expect("temp home");
+    let config = test_config(&temp_home).await;
+    let usage = TokenUsage::default();
+    let captured_at = chrono::Local
+        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
+        .single()
+        .expect("timestamp");
+    let model_slug = crate::legacy_core::test_support::get_model_offline(config.model.as_deref());
+    let method_status = MethodStatusSummary {
+        kind: MethodStatusKind::Loaded,
+        linked_issue: Some(MethodLinkedIssue {
+            provider: MethodIssueProvider::GitHub,
+            repository: "mithran-hq/aegis-code".to_string(),
+            number: 36,
+            title: Some("Implement TUI status panels".to_string()),
+            url: Some("https://github.com/mithran-hq/aegis-code/issues/36".to_string()),
+        }),
+        work_status: Some(MethodWorkStatus::Incomplete),
+        resume_validity: Some(MethodResumeValidityStatus::Stale),
+        resume_reasons: vec![MethodResumeValidityReason::BranchChanged],
+        required_evidence_total: 2,
+        required_evidence_satisfied: 1,
+        evidence_total: 3,
+        gates_pending: 1,
+        gates_failed: 0,
+        gates_blocked: 1,
+        review_open_blocking: 0,
+        review_open_high: 1,
+        review_open_medium: 0,
+        engine_alerts_warned: 1,
+        engine_alerts_blocked: 0,
+        context_packs: MethodContextPackStatusSummary {
+            active: 2,
+            ignored: 1,
+        },
+        diagnostic: Some("raw diagnostic should not render".to_string()),
+        updated_at_unix_seconds: Some(1_704_156_245),
+    };
+    let preflight = AegisPreflightDecisionEvent {
+        call_id: "call-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        tool_name: "gh".to_string(),
+        verdict: AegisPreflightVerdict::RequireConfirmation,
+        risk_category: Some(AegisSecretRiskCategory::RepositoryMutation),
+        reason: "raw policy reason should not render".to_string(),
+        required_evidence_ids: vec!["test-evidence".to_string()],
+        command: Some(vec![
+            "gh".to_string(),
+            "issue".to_string(),
+            "edit".to_string(),
+            "secret-argument".to_string(),
+        ]),
+        paths: vec!["/private/path".to_string()],
+    };
+
+    let (composite, _handle) = new_status_output_with_rate_limits_handle(
+        &config,
+        /*runtime_model_provider_base_url*/ None,
+        test_status_account_display().as_ref(),
+        /*token_info*/ None,
+        &usage,
+        &None,
+        /*thread_name*/ None,
+        /*forked_from*/ None,
+        &[],
+        None,
+        captured_at,
+        &model_slug,
+        /*collaboration_mode*/ None,
+        /*reasoning_effort_override*/ None,
+        "<none>".to_string(),
+        Some(method_status),
+        Some(preflight),
+        /*refreshing_rate_limits*/ false,
+    );
+    let rendered = render_lines(&composite.display_lines(/*width*/ 120)).join("\n");
+
+    assert!(rendered.contains("Aegis method") && rendered.contains("incomplete"));
+    assert!(
+        rendered.contains("Issue")
+            && rendered.contains("mithran-hq/aegis-code#36: Implement TUI status panels")
+    );
+    assert!(rendered.contains("Evidence") && rendered.contains("1/2 required satisfied, 3"));
+    assert!(rendered.contains("Gates") && rendered.contains("1 pending, 1 blocked"));
+    assert!(rendered.contains("Aegis Secret") && rendered.contains("requires confirmation gh"));
+    assert!(rendered.contains("risk repository mutation"));
+    assert!(!rendered.contains("secret-argument"));
+    assert!(!rendered.contains("raw policy reason"));
+    assert!(!rendered.contains("/private/path"));
+    assert!(!rendered.contains("raw diagnostic"));
 }
 
 #[tokio::test]
@@ -553,6 +658,8 @@ async fn status_model_provider_uses_bedrock_runtime_base_url() {
         /*collaboration_mode*/ None,
         /*reasoning_effort_override*/ None,
         "<none>".to_string(),
+        /*method_status*/ None,
+        /*latest_aegis_preflight*/ None,
         /*refreshing_rate_limits*/ false,
     );
     let rendered = render_lines(&composite.display_lines(/*width*/ 120)).join("\n");
@@ -1179,6 +1286,8 @@ async fn status_snapshot_uses_default_reasoning_when_config_empty() {
         /*collaboration_mode*/ None,
         /*reasoning_effort_override*/ Some(Some(ReasoningEffort::Medium)),
         "<none>".to_string(),
+        /*method_status*/ None,
+        /*latest_aegis_preflight*/ None,
         /*refreshing_rate_limits*/ false,
     );
     let mut rendered_lines = render_lines(&composite.display_lines(/*width*/ 80));

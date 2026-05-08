@@ -589,6 +589,7 @@ async fn permissions_selection_marks_auto_review_current_after_session_configure
         message_history: None,
         network_proxy: None,
         rollout_path: Some(PathBuf::new()),
+        method_status: None,
     });
 
     chat.open_permissions_popup();
@@ -636,6 +637,7 @@ async fn permissions_selection_marks_auto_review_current_with_custom_workspace_w
         message_history: None,
         network_proxy: None,
         rollout_path: Some(PathBuf::new()),
+        method_status: None,
     });
 
     chat.open_permissions_popup();

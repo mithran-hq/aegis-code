@@ -205,6 +205,8 @@ pub(super) async fn make_chatwidget_manual(
         status_account_display: None,
         runtime_model_provider_base_url: None,
         token_info: None,
+        method_status: None,
+        latest_aegis_preflight: None,
         rate_limit_snapshots_by_limit_id: BTreeMap::new(),
         refreshing_status_outputs: Vec::new(),
         next_status_refresh_request_id: 0,
@@ -511,6 +513,7 @@ fn token_usage_breakdown(usage: TokenUsage) -> codex_app_server_protocol::TokenU
         total_tokens: usage.total_tokens,
         input_tokens: usage.input_tokens,
         cached_input_tokens: usage.cached_input_tokens,
+        cache_creation_input_tokens: 0,
         output_tokens: usage.output_tokens,
         reasoning_output_tokens: usage.reasoning_output_tokens,
     }

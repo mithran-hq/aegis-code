@@ -31,6 +31,9 @@ pub(crate) enum StatusSurfacePreviewItem {
     Model,
     ModelWithReasoning,
     TaskProgress,
+    MethodState,
+    MethodGates,
+    MethodEvidence,
 }
 
 impl StatusSurfacePreviewItem {
@@ -60,6 +63,9 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::Model => "gpt-5.2-codex",
             StatusSurfacePreviewItem::ModelWithReasoning => "gpt-5.2-codex medium",
             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
+            StatusSurfacePreviewItem::MethodState => "Method #36 incomplete",
+            StatusSurfacePreviewItem::MethodGates => "Gates 1 pending",
+            StatusSurfacePreviewItem::MethodEvidence => "Evidence 1/2",
         }
     }
 
@@ -89,6 +95,9 @@ impl StatusSurfacePreviewItem {
             Self::Model,
             Self::ModelWithReasoning,
             Self::TaskProgress,
+            Self::MethodState,
+            Self::MethodGates,
+            Self::MethodEvidence,
         ]
         .into_iter()
     }

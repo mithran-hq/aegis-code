@@ -12,6 +12,7 @@ use super::TurnEnvironmentParams;
 use super::shared::v2_enum_from_core;
 use codex_experimental_api_macros::ExperimentalApi;
 use codex_protocol::config_types::Personality;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::ThreadGoalStatus as CoreThreadGoalStatus;
@@ -218,6 +219,10 @@ pub struct ThreadStartResponse {
     #[experimental("thread/start.activePermissionProfile")]
     #[serde(default)]
     pub active_permission_profile: Option<ActivePermissionProfile>,
+    /// Redacted Aegis method-state summary for TUI status surfaces.
+    #[experimental("thread/start.methodStatus")]
+    #[serde(default)]
+    pub method_status: Option<MethodStatusSummary>,
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
@@ -337,6 +342,10 @@ pub struct ThreadResumeResponse {
     #[experimental("thread/resume.activePermissionProfile")]
     #[serde(default)]
     pub active_permission_profile: Option<ActivePermissionProfile>,
+    /// Redacted Aegis method-state summary for TUI status surfaces.
+    #[experimental("thread/resume.methodStatus")]
+    #[serde(default)]
+    pub method_status: Option<MethodStatusSummary>,
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
@@ -446,6 +455,10 @@ pub struct ThreadForkResponse {
     #[experimental("thread/fork.activePermissionProfile")]
     #[serde(default)]
     pub active_permission_profile: Option<ActivePermissionProfile>,
+    /// Redacted Aegis method-state summary for TUI status surfaces.
+    #[experimental("thread/fork.methodStatus")]
+    #[serde(default)]
+    pub method_status: Option<MethodStatusSummary>,
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
@@ -978,11 +991,15 @@ pub struct ThreadReadParams {
     pub include_turns: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS, ExperimentalApi)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadReadResponse {
     pub thread: Thread,
+    /// Redacted Aegis method-state summary for TUI status surfaces.
+    #[experimental("thread/read.methodStatus")]
+    #[serde(default)]
+    pub method_status: Option<MethodStatusSummary>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

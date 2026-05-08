@@ -16,13 +16,16 @@ use codex_protocol::SessionId;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::method_state::METHOD_STATE_SCHEMA_VERSION;
+use codex_protocol::method_state::MethodContextPackStatusSummary;
 use codex_protocol::method_state::MethodEvidence;
 use codex_protocol::method_state::MethodIssueRef;
 use codex_protocol::method_state::MethodResumeContext;
 use codex_protocol::method_state::MethodResumeValidityStatus;
 use codex_protocol::method_state::MethodState;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::permissions::FileSystemPath;
 use codex_protocol::permissions::FileSystemSpecialPath;
+use codex_protocol::protocol::MethodStatusUpdatedEvent;
 use codex_protocol::protocol::ReviewOutputEvent;
 use codex_protocol::protocol::ThreadSource;
 use codex_protocol::protocol::TurnEnvironmentSelection;
@@ -773,6 +776,37 @@ fn method_state_startup_warning(status: &MethodStatePersistenceStatus) -> Option
     }
 }
 
+fn method_context_pack_summary(
+    diagnostics: &[crate::context_packs::ContextPackDiagnostic],
+) -> MethodContextPackStatusSummary {
+    MethodContextPackStatusSummary {
+        active: diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.active)
+            .count() as u64,
+        ignored: diagnostics
+            .iter()
+            .filter(|diagnostic| !diagnostic.active)
+            .count() as u64,
+    }
+}
+
+fn method_status_summary_from_status(
+    status: MethodStatePersistenceStatus,
+    context_packs: MethodContextPackStatusSummary,
+) -> MethodStatusSummary {
+    match status {
+        MethodStatePersistenceStatus::Missing => MethodStatusSummary::missing(context_packs),
+        MethodStatePersistenceStatus::Invalid { diagnostic } => {
+            MethodStatusSummary::invalid(diagnostic.message, context_packs)
+        }
+        MethodStatePersistenceStatus::Loaded {
+            state,
+            resume_validity,
+        } => MethodStatusSummary::loaded(&state, &resume_validity, context_packs),
+    }
+}
+
 impl Session {
     /// Returns the concrete identity for this thread.
     pub(crate) fn thread_id(&self) -> ThreadId {
@@ -787,6 +821,32 @@ impl Session {
     #[allow(dead_code)]
     pub(crate) async fn method_state_status(&self) -> MethodStatePersistenceStatus {
         self.state.lock().await.method_state_status()
+    }
+
+    pub(crate) async fn method_status_summary(&self) -> MethodStatusSummary {
+        let (method_state_status, context_packs) = {
+            let state = self.state.lock().await;
+            (
+                state.method_state_status(),
+                method_context_pack_summary(
+                    state
+                        .session_configuration
+                        .original_config_do_not_use
+                        .context_packs
+                        .diagnostics(),
+                ),
+            )
+        };
+        method_status_summary_from_status(method_state_status, context_packs)
+    }
+
+    async fn emit_method_status_update(&self) {
+        let summary = self.method_status_summary().await;
+        self.send_event_raw(Event {
+            id: "method_status".to_string(),
+            msg: EventMsg::MethodStatusUpdated(MethodStatusUpdatedEvent { summary }),
+        })
+        .await;
     }
 
     #[allow(dead_code)]
@@ -823,6 +883,7 @@ impl Session {
             .lock()
             .await
             .set_method_state_status(status.clone());
+        self.emit_method_status_update().await;
         Ok(status)
     }
 

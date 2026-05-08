@@ -651,6 +651,7 @@ mod tests {
                 message_history: None,
                 network_proxy: None,
                 rollout_path: Some(PathBuf::new()),
+                method_status: None,
             });
 
         assert_eq!(app.chat_widget.config_ref().cwd.to_path_buf(), next_cwd);

@@ -31,6 +31,7 @@ use crate::items::TurnItem;
 use crate::mcp::CallToolResult;
 use crate::mcp::RequestId;
 use crate::memory_citation::MemoryCitation;
+use crate::method_state::MethodStatusSummary;
 use crate::models::ActivePermissionProfile;
 use crate::models::BaseInstructions;
 use crate::models::ContentItem;
@@ -1352,6 +1353,9 @@ pub enum EventMsg {
 
     /// Aegis preflight gate decision before a tool call can mutate state.
     AegisPreflightDecision(AegisPreflightDecisionEvent),
+
+    /// Redacted Aegis method-state summary for UI status surfaces.
+    MethodStatusUpdated(MethodStatusUpdatedEvent),
 
     /// Incremental chunk of output from a running command.
     ExecCommandOutputDelta(ExecCommandOutputDeltaEvent),
@@ -3098,6 +3102,11 @@ pub struct AegisPreflightDecisionEvent {
     pub command: Option<Vec<String>>,
     #[serde(default)]
     pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct MethodStatusUpdatedEvent {
+    pub summary: MethodStatusSummary,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]

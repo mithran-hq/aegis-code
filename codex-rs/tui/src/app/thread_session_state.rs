@@ -79,6 +79,7 @@ impl App {
                 message_history: None,
                 network_proxy: None,
                 rollout_path: thread.path.clone(),
+                method_status: None,
             });
         session.thread_id = thread_id;
         session.thread_name = thread.name.clone();
@@ -96,6 +97,7 @@ impl App {
             session.model.clear();
         }
         session.message_history = None;
+        session.method_status = None;
         session
     }
 
@@ -154,6 +156,7 @@ mod tests {
             message_history: None,
             network_proxy: None,
             rollout_path: Some(PathBuf::new()),
+            method_status: None,
         }
     }
 

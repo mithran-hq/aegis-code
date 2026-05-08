@@ -16,6 +16,7 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::mcp::CallToolResult;
 use codex_protocol::method_state::MethodState;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::PermissionProfile;
@@ -144,6 +145,10 @@ impl CodexThread {
             .replace_method_state(method_state)
             .await
             .map(|_| ())
+    }
+
+    pub async fn method_status_summary(&self) -> MethodStatusSummary {
+        self.codex.session.method_status_summary().await
     }
 
     pub async fn apply_goal_resume_runtime_effects(&self) -> anyhow::Result<()> {

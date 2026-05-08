@@ -2316,6 +2316,258 @@
         }
       ]
     },
+    "MethodContextPackStatusSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ignored": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "active",
+        "ignored"
+      ],
+      "type": "object"
+    },
+    "MethodIssueProvider": {
+      "enum": [
+        "git_hub"
+      ],
+      "type": "string"
+    },
+    "MethodLinkedIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "provider": {
+          "$ref": "#/definitions/MethodIssueProvider"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "number",
+        "provider",
+        "repository"
+      ],
+      "type": "object"
+    },
+    "MethodResumeValidityReason": {
+      "enum": [
+        "missing_persisted_repository",
+        "missing_current_repository",
+        "repository_mismatch",
+        "missing_persisted_branch",
+        "missing_current_branch",
+        "branch_changed",
+        "missing_persisted_commit",
+        "missing_current_commit",
+        "commit_changed",
+        "missing_persisted_issue",
+        "missing_current_issue",
+        "issue_mismatch",
+        "missing_persisted_schema_version",
+        "missing_current_schema_version",
+        "schema_version_mismatch"
+      ],
+      "type": "string"
+    },
+    "MethodResumeValidityStatus": {
+      "enum": [
+        "valid",
+        "stale",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "MethodStatusChangedNotification": {
+      "properties": {
+        "summary": {
+          "$ref": "#/definitions/MethodStatusSummary"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "MethodStatusKind": {
+      "enum": [
+        "missing",
+        "loaded",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "MethodStatusSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "context_packs": {
+          "$ref": "#/definitions/MethodContextPackStatusSummary"
+        },
+        "diagnostic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "engine_alerts_blocked": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "engine_alerts_warned": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "evidence_total": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "gates_blocked": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "gates_failed": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "gates_pending": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/definitions/MethodStatusKind"
+        },
+        "linked_issue": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MethodLinkedIssue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "required_evidence_satisfied": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "required_evidence_total": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "resume_reasons": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/MethodResumeValidityReason"
+          },
+          "type": "array"
+        },
+        "resume_validity": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MethodResumeValidityStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "review_open_blocking": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "review_open_high": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "review_open_medium": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "updated_at_unix_seconds": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "work_status": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MethodWorkStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "context_packs",
+        "engine_alerts_blocked",
+        "engine_alerts_warned",
+        "evidence_total",
+        "gates_blocked",
+        "gates_failed",
+        "gates_pending",
+        "kind",
+        "required_evidence_satisfied",
+        "required_evidence_total",
+        "review_open_blocking",
+        "review_open_high",
+        "review_open_medium"
+      ],
+      "type": "object"
+    },
+    "MethodWorkStatus": {
+      "enum": [
+        "incomplete",
+        "blocked",
+        "failed",
+        "closed"
+      ],
+      "type": "string"
+    },
     "ModelRerouteReason": {
       "enum": [
         "highRiskCyberActivity"
@@ -5158,6 +5410,26 @@
         "params"
       ],
       "title": "Aegis/preflightDecisionNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "aegis/methodStatusChanged"
+          ],
+          "title": "Aegis/methodStatusChangedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/MethodStatusChangedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Aegis/methodStatusChangedNotification",
       "type": "object"
     },
     {

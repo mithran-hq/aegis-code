@@ -610,6 +610,7 @@ pub(super) async fn handle_pending_thread_resume_request(
         sandbox,
         permission_profile: Some(permission_profile.into()),
         active_permission_profile,
+        method_status: Some(conversation.method_status_summary().await),
         reasoning_effort,
     };
     let token_usage_thread = pending.include_turns.then(|| response.thread.clone());

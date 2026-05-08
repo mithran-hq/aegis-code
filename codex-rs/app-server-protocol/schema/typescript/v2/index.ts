@@ -238,6 +238,7 @@ export type { McpToolCallStatus } from "./McpToolCallStatus";
 export type { MemoryCitation } from "./MemoryCitation";
 export type { MemoryCitationEntry } from "./MemoryCitationEntry";
 export type { MergeStrategy } from "./MergeStrategy";
+export type { MethodStatusChangedNotification } from "./MethodStatusChangedNotification";
 export type { MigrationDetails } from "./MigrationDetails";
 export type { Model } from "./Model";
 export type { ModelAvailabilityNux } from "./ModelAvailabilityNux";

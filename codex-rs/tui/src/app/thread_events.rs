@@ -357,6 +357,7 @@ mod tests {
             message_history: None,
             network_proxy: None,
             rollout_path: Some(PathBuf::new()),
+            method_status: None,
         }
     }
 

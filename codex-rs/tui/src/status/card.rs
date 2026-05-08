@@ -14,10 +14,15 @@ use codex_model_provider_info::WireApi;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
 use codex_protocol::config_types::ApprovalsReviewer;
+use codex_protocol::method_state::MethodResumeValidityStatus;
+use codex_protocol::method_state::MethodStatusKind;
+use codex_protocol::method_state::MethodStatusSummary;
+use codex_protocol::method_state::MethodWorkStatus;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::ActivePermissionProfileModification;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::AegisPreflightDecisionEvent;
 use codex_utils_sandbox_summary::summarize_permission_profile;
 use ratatui::prelude::*;
 use ratatui::style::Stylize;
@@ -108,6 +113,8 @@ struct StatusHistoryCell {
     thread_name: Option<String>,
     session_id: Option<String>,
     forked_from: Option<String>,
+    method_status: Option<MethodStatusSummary>,
+    latest_aegis_preflight: Option<AegisPreflightDecisionEvent>,
     token_usage: StatusTokenUsageData,
     rate_limit_state: Arc<RwLock<StatusRateLimitState>>,
 }
@@ -182,6 +189,8 @@ pub(crate) fn new_status_output_with_rate_limits(
         collaboration_mode,
         reasoning_effort_override,
         "<none>".to_string(),
+        /*method_status*/ None,
+        /*latest_aegis_preflight*/ None,
         refreshing_rate_limits,
     )
     .0
@@ -204,6 +213,8 @@ pub(crate) fn new_status_output_with_rate_limits_handle(
     collaboration_mode: Option<&str>,
     reasoning_effort_override: Option<Option<ReasoningEffort>>,
     agents_summary: String,
+    method_status: Option<MethodStatusSummary>,
+    latest_aegis_preflight: Option<AegisPreflightDecisionEvent>,
     refreshing_rate_limits: bool,
 ) -> (CompositeHistoryCell, StatusHistoryHandle) {
     let command = PlainHistoryCell::new(vec!["/status".magenta().into()]);
@@ -223,6 +234,8 @@ pub(crate) fn new_status_output_with_rate_limits_handle(
         collaboration_mode,
         reasoning_effort_override,
         agents_summary,
+        method_status,
+        latest_aegis_preflight,
         refreshing_rate_limits,
     );
 
@@ -250,6 +263,8 @@ impl StatusHistoryCell {
         collaboration_mode: Option<&str>,
         reasoning_effort_override: Option<Option<ReasoningEffort>>,
         agents_summary: String,
+        method_status: Option<MethodStatusSummary>,
+        latest_aegis_preflight: Option<AegisPreflightDecisionEvent>,
         refreshing_rate_limits: bool,
     ) -> (Self, StatusHistoryHandle) {
         let approval_policy = AskForApproval::from(config.permissions.approval_policy.value());
@@ -341,6 +356,8 @@ impl StatusHistoryCell {
                 thread_name,
                 session_id,
                 forked_from,
+                method_status,
+                latest_aegis_preflight,
                 token_usage,
                 agents_summary,
                 rate_limit_state: rate_limit_state.clone(),
@@ -641,6 +658,147 @@ fn status_approval_label(
     }
 }
 
+fn method_status_label(summary: &MethodStatusSummary) -> String {
+    match summary.kind {
+        MethodStatusKind::Missing => "not loaded".to_string(),
+        MethodStatusKind::Invalid => "invalid".to_string(),
+        MethodStatusKind::Loaded => summary
+            .work_status
+            .map(method_work_status_label)
+            .unwrap_or("loaded")
+            .to_string(),
+    }
+}
+
+fn method_issue_label(summary: &MethodStatusSummary) -> Option<String> {
+    let issue = summary.linked_issue.as_ref()?;
+    let mut label = format!("{}#{}", issue.repository, issue.number);
+    if let Some(title) = issue.title.as_deref().filter(|title| !title.is_empty()) {
+        label.push_str(": ");
+        label.push_str(title);
+    }
+    Some(label)
+}
+
+fn method_resume_label(summary: &MethodStatusSummary) -> Option<String> {
+    let validity = summary.resume_validity?;
+    let label = match validity {
+        MethodResumeValidityStatus::Valid => "valid".to_string(),
+        MethodResumeValidityStatus::Stale => {
+            format!("stale ({} reasons)", summary.resume_reasons.len())
+        }
+        MethodResumeValidityStatus::Invalid => {
+            format!("invalid ({} reasons)", summary.resume_reasons.len())
+        }
+    };
+    Some(label)
+}
+
+fn method_context_packs_label(summary: &MethodStatusSummary) -> String {
+    match (summary.context_packs.active, summary.context_packs.ignored) {
+        (0, 0) => "none".to_string(),
+        (active, 0) => format!("{active} active"),
+        (active, ignored) => format!("{active} active, {ignored} ignored"),
+    }
+}
+
+fn method_evidence_label(summary: &MethodStatusSummary) -> String {
+    if summary.required_evidence_total == 0 {
+        return format!("{} recorded, no required evidence", summary.evidence_total);
+    }
+
+    format!(
+        "{}/{} required satisfied, {} recorded",
+        summary.required_evidence_satisfied,
+        summary.required_evidence_total,
+        summary.evidence_total
+    )
+}
+
+fn method_gates_label(summary: &MethodStatusSummary) -> String {
+    let parts = [
+        (summary.gates_pending, "pending"),
+        (summary.gates_failed, "failed"),
+        (summary.gates_blocked, "blocked"),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, label)| format!("{count} {label}"))
+    .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        "clear".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+fn method_review_label(summary: &MethodStatusSummary) -> String {
+    let parts = [
+        (summary.review_open_blocking, "blocking"),
+        (summary.review_open_high, "high"),
+        (summary.review_open_medium, "medium"),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, label)| format!("{count} {label}"))
+    .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        "no open blockers".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+fn method_engine_label(summary: &MethodStatusSummary) -> String {
+    match (summary.engine_alerts_blocked, summary.engine_alerts_warned) {
+        (0, 0) => "clear".to_string(),
+        (blocked, 0) => format!("{blocked} blocked"),
+        (0, warned) => format!("{warned} warned"),
+        (blocked, warned) => format!("{blocked} blocked, {warned} warned"),
+    }
+}
+
+fn method_preflight_label(event: &AegisPreflightDecisionEvent) -> String {
+    let verdict = match event.verdict {
+        codex_protocol::protocol::AegisPreflightVerdict::Allow => "allow",
+        codex_protocol::protocol::AegisPreflightVerdict::Block => "block",
+        codex_protocol::protocol::AegisPreflightVerdict::RequireConfirmation => {
+            "requires confirmation"
+        }
+    };
+    let risk = event
+        .risk_category
+        .map(|category| {
+            let category = format!("{category:?}");
+            let mut label = String::with_capacity(category.len());
+            for (idx, ch) in category.chars().enumerate() {
+                if idx > 0 && ch.is_uppercase() {
+                    label.push(' ');
+                }
+                label.push(ch.to_ascii_lowercase());
+            }
+            format!("; risk {label}")
+        })
+        .unwrap_or_default();
+    let evidence = if event.required_evidence_ids.is_empty() {
+        String::new()
+    } else {
+        format!("; {} evidence required", event.required_evidence_ids.len())
+    };
+    format!("{verdict} {}{risk}{evidence}", event.tool_name)
+}
+
+fn method_work_status_label(status: MethodWorkStatus) -> &'static str {
+    match status {
+        MethodWorkStatus::Incomplete => "incomplete",
+        MethodWorkStatus::Blocked => "blocked",
+        MethodWorkStatus::Failed => "failed",
+        MethodWorkStatus::Closed => "closed",
+    }
+}
+
 impl HistoryCell for StatusHistoryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut lines: Vec<Line<'static>> = Vec::new();
@@ -705,6 +863,19 @@ impl HistoryCell for StatusHistoryCell {
         if self.collaboration_mode.is_some() {
             push_label(&mut labels, &mut seen, "Collaboration mode");
         }
+        if self.method_status.is_some() {
+            push_label(&mut labels, &mut seen, "Aegis method");
+            push_label(&mut labels, &mut seen, "Issue");
+            push_label(&mut labels, &mut seen, "Resume");
+            push_label(&mut labels, &mut seen, "Context packs");
+            push_label(&mut labels, &mut seen, "Evidence");
+            push_label(&mut labels, &mut seen, "Gates");
+            push_label(&mut labels, &mut seen, "Review");
+            push_label(&mut labels, &mut seen, "Aegis Engine");
+        }
+        if self.latest_aegis_preflight.is_some() {
+            push_label(&mut labels, &mut seen, "Aegis Secret");
+        }
         push_label(&mut labels, &mut seen, "Token usage");
         if self.token_usage.context_window.is_some() {
             push_label(&mut labels, &mut seen, "Context window");
@@ -766,6 +937,48 @@ impl HistoryCell for StatusHistoryCell {
             && let Some(forked_from) = self.forked_from.as_ref()
         {
             lines.push(formatter.line("Forked from", vec![Span::from(forked_from.clone())]));
+        }
+
+        if let Some(method_status) = self.method_status.as_ref() {
+            lines.push(Line::from(Vec::<Span<'static>>::new()));
+            lines.push(formatter.line(
+                "Aegis method",
+                vec![Span::from(method_status_label(method_status))],
+            ));
+            if let Some(issue) = method_issue_label(method_status) {
+                lines.push(formatter.line("Issue", vec![Span::from(issue)]));
+            }
+            if let Some(resume) = method_resume_label(method_status) {
+                lines.push(formatter.line("Resume", vec![Span::from(resume)]));
+            }
+            lines.push(formatter.line(
+                "Context packs",
+                vec![Span::from(method_context_packs_label(method_status))],
+            ));
+            lines.push(formatter.line(
+                "Evidence",
+                vec![Span::from(method_evidence_label(method_status))],
+            ));
+            lines
+                .push(formatter.line("Gates", vec![Span::from(method_gates_label(method_status))]));
+            lines.push(formatter.line(
+                "Review",
+                vec![Span::from(method_review_label(method_status))],
+            ));
+            lines.push(formatter.line(
+                "Aegis Engine",
+                vec![Span::from(method_engine_label(method_status))],
+            ));
+        }
+
+        if let Some(preflight) = self.latest_aegis_preflight.as_ref() {
+            if self.method_status.is_none() {
+                lines.push(Line::from(Vec::<Span<'static>>::new()));
+            }
+            lines.push(formatter.line(
+                "Aegis Secret",
+                vec![Span::from(method_preflight_label(preflight))],
+            ));
         }
 
         lines.push(Line::from(Vec::<Span<'static>>::new()));

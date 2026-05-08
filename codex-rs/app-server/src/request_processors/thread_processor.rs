@@ -1111,6 +1111,7 @@ impl ThreadRequestProcessor {
                 otel.name = "app_server.thread_start.config_snapshot",
             ))
             .await;
+        let method_status = Some(thread.method_status_summary().await);
         let mut thread = build_thread_from_snapshot(
             thread_id,
             session_configured.session_id.to_string(),
@@ -1177,6 +1178,7 @@ impl ThreadRequestProcessor {
             sandbox,
             permission_profile: Some(config_snapshot.permission_profile.into()),
             active_permission_profile,
+            method_status,
             reasoning_effort: config_snapshot.reasoning_effort,
         };
         let notif = thread_started_notification(thread);
@@ -1920,7 +1922,10 @@ impl ThreadRequestProcessor {
             .read_thread_view(thread_uuid, include_turns)
             .await
             .map_err(thread_read_view_error)?;
-        Ok(ThreadReadResponse { thread })
+        Ok(ThreadReadResponse {
+            thread,
+            method_status: None,
+        })
     }
 
     /// Builds the API view for `thread/read` from persisted metadata plus optional live state.
@@ -2529,6 +2534,7 @@ impl ThreadRequestProcessor {
                     sandbox,
                     permission_profile: Some(config_snapshot.permission_profile.into()),
                     active_permission_profile,
+                    method_status: Some(codex_thread.method_status_summary().await),
                     reasoning_effort: session_configured.reasoning_effort,
                 };
 
@@ -3176,6 +3182,7 @@ impl ThreadRequestProcessor {
             sandbox,
             permission_profile: Some(config_snapshot.permission_profile.into()),
             active_permission_profile,
+            method_status: Some(forked_thread.method_status_summary().await),
             reasoning_effort: session_configured.reasoning_effort,
         };
 

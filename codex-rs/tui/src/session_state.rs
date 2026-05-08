@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use codex_app_server_protocol::AskForApproval;
 use codex_protocol::ThreadId;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::PermissionProfile;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -47,4 +48,5 @@ pub(crate) struct ThreadSessionState {
     pub(crate) message_history: Option<MessageHistoryMetadata>,
     pub(crate) network_proxy: Option<SessionNetworkProxyRuntime>,
     pub(crate) rollout_path: Option<PathBuf>,
+    pub(crate) method_status: Option<MethodStatusSummary>,
 }

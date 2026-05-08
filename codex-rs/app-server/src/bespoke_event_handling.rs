@@ -39,6 +39,7 @@ use codex_app_server_protocol::McpServerElicitationRequestParams;
 use codex_app_server_protocol::McpServerElicitationRequestResponse;
 use codex_app_server_protocol::McpServerStartupState;
 use codex_app_server_protocol::McpServerStatusUpdatedNotification;
+use codex_app_server_protocol::MethodStatusChangedNotification;
 use codex_app_server_protocol::ModelReroutedNotification;
 use codex_app_server_protocol::ModelVerificationNotification;
 use codex_app_server_protocol::NetworkApprovalContext as V2NetworkApprovalContext;
@@ -232,6 +233,16 @@ pub(crate) async fn apply_bespoke_event_handling(
                     AegisPreflightDecisionNotification {
                         thread_id: conversation_id.to_string(),
                         decision,
+                    },
+                ))
+                .await;
+        }
+        EventMsg::MethodStatusUpdated(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::MethodStatusChanged(
+                    MethodStatusChangedNotification {
+                        thread_id: conversation_id.to_string(),
+                        summary: event.summary,
                     },
                 ))
                 .await;

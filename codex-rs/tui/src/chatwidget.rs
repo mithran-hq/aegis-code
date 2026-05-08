@@ -156,11 +156,13 @@ use codex_protocol::config_types::Settings;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::items::AgentMessageContent;
 use codex_protocol::items::AgentMessageItem;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::local_image_label_text;
 use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::plan_tool::PlanItemArg as UpdatePlanItemArg;
 use codex_protocol::plan_tool::StepStatus as UpdatePlanItemStatus;
+use codex_protocol::protocol::AegisPreflightDecisionEvent;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::user_input::ByteRange;
 use codex_protocol::user_input::TextElement;
@@ -775,6 +777,8 @@ pub(crate) struct ChatWidget {
     initial_user_message: Option<UserMessage>,
     status_account_display: Option<StatusAccountDisplay>,
     runtime_model_provider_base_url: Option<String>,
+    method_status: Option<MethodStatusSummary>,
+    latest_aegis_preflight: Option<AegisPreflightDecisionEvent>,
     token_info: Option<TokenUsageInfo>,
     rate_limit_snapshots_by_limit_id: BTreeMap<String, RateLimitSnapshotDisplay>,
     refreshing_status_outputs: Vec<(u64, StatusHistoryHandle)>,
@@ -2062,6 +2066,8 @@ impl ChatWidget {
         self.refresh_plan_mode_nudge();
         self.last_turn_id = None;
         self.thread_name = session.thread_name.clone();
+        self.method_status = session.method_status.clone();
+        self.latest_aegis_preflight = None;
         self.current_goal_status_indicator = None;
         self.current_goal_status = None;
         self.goal_status_active_turn_started_at = None;
@@ -4941,6 +4947,8 @@ impl ChatWidget {
             initial_user_message,
             status_account_display,
             runtime_model_provider_base_url,
+            method_status: None,
+            latest_aegis_preflight: None,
             token_info: None,
             rate_limit_snapshots_by_limit_id: BTreeMap::new(),
             refreshing_status_outputs: Vec::new(),
@@ -6370,6 +6378,14 @@ impl ChatWidget {
             ServerNotification::McpServerStatusUpdated(notification) => {
                 self.on_mcp_server_status_updated(notification)
             }
+            ServerNotification::AegisPreflightDecision(notification) => {
+                self.latest_aegis_preflight = Some(notification.decision);
+                self.refresh_status_surfaces();
+            }
+            ServerNotification::MethodStatusChanged(notification) => {
+                self.method_status = Some(notification.summary);
+                self.refresh_status_surfaces();
+            }
             ServerNotification::ItemGuardianApprovalReviewStarted(notification) => {
                 self.on_guardian_review_notification(
                     notification.review_id,
@@ -6933,6 +6949,8 @@ impl ChatWidget {
             collaboration_mode,
             reasoning_effort_override,
             agents_summary,
+            self.method_status.clone(),
+            self.latest_aegis_preflight.clone(),
             refreshing_rate_limits,
         );
         if let Some(request_id) = request_id {

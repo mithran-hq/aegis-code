@@ -1,5 +1,6 @@
 use super::TurnError;
 use crate::RequestId;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::protocol::AegisPreflightDecisionEvent;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -55,6 +56,14 @@ pub struct AegisPreflightDecisionNotification {
     pub thread_id: String,
     #[serde(flatten)]
     pub decision: AegisPreflightDecisionEvent,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct MethodStatusChangedNotification {
+    pub thread_id: String,
+    pub summary: MethodStatusSummary,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

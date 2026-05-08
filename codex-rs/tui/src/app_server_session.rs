@@ -104,6 +104,7 @@ use codex_app_server_protocol::UserInput;
 use codex_otel::TelemetryAuthMode;
 use codex_protocol::ThreadId;
 use codex_protocol::approvals::GuardianAssessmentEvent;
+use codex_protocol::method_state::MethodStatusSummary;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::ActivePermissionProfileModification;
 use codex_protocol::models::PermissionProfile;
@@ -1358,6 +1359,7 @@ async fn thread_session_state_from_thread_start_response(
         response.cwd.clone(),
         response.instruction_sources.clone(),
         response.reasoning_effort,
+        response.method_status.clone(),
         config,
     )
     .await
@@ -1390,6 +1392,7 @@ async fn thread_session_state_from_thread_resume_response(
         response.cwd.clone(),
         response.instruction_sources.clone(),
         response.reasoning_effort,
+        response.method_status.clone(),
         config,
     )
     .await
@@ -1422,6 +1425,7 @@ async fn thread_session_state_from_thread_fork_response(
         response.cwd.clone(),
         response.instruction_sources.clone(),
         response.reasoning_effort,
+        response.method_status.clone(),
         config,
     )
     .await
@@ -1464,6 +1468,7 @@ async fn thread_session_state_from_thread_response(
     cwd: AbsolutePathBuf,
     instruction_source_paths: Vec<AbsolutePathBuf>,
     reasoning_effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+    method_status: Option<MethodStatusSummary>,
     config: &Config,
 ) -> Result<ThreadSessionState, String> {
     let thread_id = ThreadId::from_string(thread_id)
@@ -1497,6 +1502,7 @@ async fn thread_session_state_from_thread_response(
         }),
         network_proxy: None,
         rollout_path,
+        method_status,
     })
 }
 
@@ -1884,6 +1890,7 @@ mod tests {
                 .into(),
             permission_profile: Some(read_only_profile.clone().into()),
             active_permission_profile: None,
+            method_status: None,
             reasoning_effort: None,
         };
 
@@ -1999,6 +2006,7 @@ mod tests {
             test_path_buf("/tmp/project").abs(),
             Vec::new(),
             /*reasoning_effort*/ None,
+            /*method_status*/ None,
             &config,
         )
         .await
@@ -2033,6 +2041,7 @@ mod tests {
             test_path_buf("/tmp/project").abs(),
             Vec::new(),
             /*reasoning_effort*/ None,
+            /*method_status*/ None,
             &config,
         )
         .await

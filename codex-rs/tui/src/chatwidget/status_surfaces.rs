@@ -7,6 +7,9 @@ use super::*;
 use crate::bottom_pane::status_line_from_segments;
 use crate::branch_summary;
 use crate::status::format_tokens_compact;
+use codex_protocol::method_state::MethodResumeValidityStatus;
+use codex_protocol::method_state::MethodStatusKind;
+use codex_protocol::method_state::MethodWorkStatus;
 
 /// Items shown in the terminal title when the user has not configured a
 /// custom selection. Intentionally minimal: activity indicator + project name.
@@ -653,7 +656,78 @@ impl ChatWidget {
                 (!trimmed.is_empty()).then(|| trimmed.to_string())
             }),
             StatusLineItem::TaskProgress => self.terminal_title_task_progress(),
+            StatusLineItem::MethodState => self.method_state_status_line(),
+            StatusLineItem::MethodGates => self.method_gates_status_line(),
+            StatusLineItem::MethodEvidence => self.method_evidence_status_line(),
         }
+    }
+
+    fn method_state_status_line(&self) -> Option<String> {
+        let summary = self.method_status.as_ref()?;
+        match summary.kind {
+            MethodStatusKind::Missing => None,
+            MethodStatusKind::Invalid => Some("Method invalid".to_string()),
+            MethodStatusKind::Loaded => {
+                if summary.resume_validity == Some(MethodResumeValidityStatus::Invalid) {
+                    return Some("Method invalid".to_string());
+                }
+                if summary.resume_validity == Some(MethodResumeValidityStatus::Stale) {
+                    return Some("Method stale".to_string());
+                }
+                if summary.engine_alerts_blocked > 0 || summary.gates_blocked > 0 {
+                    return Some("Method blocked".to_string());
+                }
+                if summary.gates_failed > 0
+                    || summary.review_open_blocking > 0
+                    || summary.review_open_high > 0
+                {
+                    return Some("Method needs review".to_string());
+                }
+                let status = match summary.work_status {
+                    Some(MethodWorkStatus::Incomplete) => "incomplete",
+                    Some(MethodWorkStatus::Blocked) => "blocked",
+                    Some(MethodWorkStatus::Failed) => "failed",
+                    Some(MethodWorkStatus::Closed) => "closed",
+                    None => "unknown",
+                };
+                let issue = summary
+                    .linked_issue
+                    .as_ref()
+                    .map(|issue| format!("#{}", issue.number))
+                    .unwrap_or_else(|| "unlinked".to_string());
+                Some(format!("Method {issue} {status}"))
+            }
+        }
+    }
+
+    fn method_gates_status_line(&self) -> Option<String> {
+        let summary = self.method_status.as_ref()?;
+        let total = summary.gates_pending + summary.gates_failed + summary.gates_blocked;
+        if total == 0 {
+            return None;
+        }
+        let mut parts = Vec::new();
+        if summary.gates_pending > 0 {
+            parts.push(format!("{} pending", summary.gates_pending));
+        }
+        if summary.gates_failed > 0 {
+            parts.push(format!("{} failed", summary.gates_failed));
+        }
+        if summary.gates_blocked > 0 {
+            parts.push(format!("{} blocked", summary.gates_blocked));
+        }
+        Some(format!("Gates {}", parts.join(", ")))
+    }
+
+    fn method_evidence_status_line(&self) -> Option<String> {
+        let summary = self.method_status.as_ref()?;
+        if summary.required_evidence_total == 0 {
+            return None;
+        }
+        Some(format!(
+            "Evidence {}/{}",
+            summary.required_evidence_satisfied, summary.required_evidence_total
+        ))
     }
 
     fn status_line_pull_request_url(&self) -> Option<String> {
@@ -673,6 +747,9 @@ impl ChatWidget {
             StatusSurfacePreviewItem::ProjectRoot => StatusLineItem::ProjectRoot,
             StatusSurfacePreviewItem::Status => return Some(self.run_state_status_text()),
             StatusSurfacePreviewItem::TaskProgress => return self.terminal_title_task_progress(),
+            StatusSurfacePreviewItem::MethodState => return self.method_state_status_line(),
+            StatusSurfacePreviewItem::MethodGates => return self.method_gates_status_line(),
+            StatusSurfacePreviewItem::MethodEvidence => return self.method_evidence_status_line(),
             StatusSurfacePreviewItem::CurrentDir => StatusLineItem::CurrentDir,
             StatusSurfacePreviewItem::ThreadTitle => StatusLineItem::ThreadTitle,
             StatusSurfacePreviewItem::GitBranch => StatusLineItem::GitBranch,

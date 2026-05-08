@@ -125,6 +125,15 @@ pub(crate) enum StatusLineItem {
 
     /// Latest checklist task progress from `update_plan` (if available).
     TaskProgress,
+
+    /// Compact Aegis method-state status, when method state is active.
+    MethodState,
+
+    /// Pending or failed Aegis method gates, when present.
+    MethodGates,
+
+    /// Required Aegis method evidence progress, when present.
+    MethodEvidence,
 }
 
 impl StatusLineItem {
@@ -171,6 +180,15 @@ impl StatusLineItem {
             StatusLineItem::TaskProgress => {
                 "Latest task progress from update_plan (omitted until available)"
             }
+            StatusLineItem::MethodState => {
+                "Aegis method status for the current linked task (omitted until available)"
+            }
+            StatusLineItem::MethodGates => {
+                "Aegis method gates that still need attention (omitted when clear)"
+            }
+            StatusLineItem::MethodEvidence => {
+                "Required Aegis evidence progress (omitted when no evidence is required)"
+            }
         }
     }
 
@@ -198,6 +216,9 @@ impl StatusLineItem {
             StatusLineItem::RawOutput => StatusSurfacePreviewItem::RawOutput,
             StatusLineItem::ThreadTitle => StatusSurfacePreviewItem::ThreadTitle,
             StatusLineItem::TaskProgress => StatusSurfacePreviewItem::TaskProgress,
+            StatusLineItem::MethodState => StatusSurfacePreviewItem::MethodState,
+            StatusLineItem::MethodGates => StatusSurfacePreviewItem::MethodGates,
+            StatusLineItem::MethodEvidence => StatusSurfacePreviewItem::MethodEvidence,
         }
     }
 }

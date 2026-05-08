@@ -1433,6 +1433,8 @@ server_notification_definitions! {
     ThreadGoalCleared => "thread/goal/cleared" (v2::ThreadGoalClearedNotification),
     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (v2::ThreadTokenUsageUpdatedNotification),
     AegisPreflightDecision => "aegis/preflightDecision" (v2::AegisPreflightDecisionNotification),
+    #[experimental("aegis/methodStatusChanged")]
+    MethodStatusChanged => "aegis/methodStatusChanged" (v2::MethodStatusChangedNotification),
     TurnStarted => "turn/started" (v2::TurnStartedNotification),
     HookStarted => "hook/started" (v2::HookStartedNotification),
     TurnCompleted => "turn/completed" (v2::TurnCompletedNotification),
@@ -2237,6 +2239,7 @@ mod tests {
                 sandbox: v2::SandboxPolicy::DangerFullAccess,
                 permission_profile: None,
                 active_permission_profile: None,
+                method_status: None,
                 reasoning_effort: None,
             },
         };
@@ -2283,6 +2286,7 @@ mod tests {
                     },
                     "permissionProfile": null,
                     "activePermissionProfile": null,
+                    "methodStatus": null,
                     "reasoningEffort": null
                 }
             }),

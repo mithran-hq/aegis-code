@@ -9,6 +9,174 @@ pub const METHOD_STATE_SCHEMA_VERSION: u32 = 1;
 pub const METHOD_EVIDENCE_RECEIPT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodStatusKind {
+    Missing,
+    Loaded,
+    Invalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodContextPackStatusSummary {
+    pub active: u64,
+    pub ignored: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MethodStatusSummary {
+    pub kind: MethodStatusKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub linked_issue: Option<MethodLinkedIssue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub work_status: Option<MethodWorkStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resume_validity: Option<MethodResumeValidityStatus>,
+    #[serde(default)]
+    pub resume_reasons: Vec<MethodResumeValidityReason>,
+    pub required_evidence_total: u64,
+    pub required_evidence_satisfied: u64,
+    pub evidence_total: u64,
+    pub gates_pending: u64,
+    pub gates_failed: u64,
+    pub gates_blocked: u64,
+    pub review_open_blocking: u64,
+    pub review_open_high: u64,
+    pub review_open_medium: u64,
+    pub engine_alerts_warned: u64,
+    pub engine_alerts_blocked: u64,
+    pub context_packs: MethodContextPackStatusSummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnostic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub updated_at_unix_seconds: Option<i64>,
+}
+
+impl MethodStatusSummary {
+    pub fn missing(context_packs: MethodContextPackStatusSummary) -> Self {
+        Self {
+            kind: MethodStatusKind::Missing,
+            linked_issue: None,
+            work_status: None,
+            resume_validity: None,
+            resume_reasons: Vec::new(),
+            required_evidence_total: 0,
+            required_evidence_satisfied: 0,
+            evidence_total: 0,
+            gates_pending: 0,
+            gates_failed: 0,
+            gates_blocked: 0,
+            review_open_blocking: 0,
+            review_open_high: 0,
+            review_open_medium: 0,
+            engine_alerts_warned: 0,
+            engine_alerts_blocked: 0,
+            context_packs,
+            diagnostic: None,
+            updated_at_unix_seconds: None,
+        }
+    }
+
+    pub fn invalid(diagnostic: String, context_packs: MethodContextPackStatusSummary) -> Self {
+        Self {
+            diagnostic: Some(diagnostic),
+            kind: MethodStatusKind::Invalid,
+            ..Self::missing(context_packs)
+        }
+    }
+
+    pub fn loaded(
+        state: &MethodState,
+        resume_validity: &MethodResumeValidityReport,
+        context_packs: MethodContextPackStatusSummary,
+    ) -> Self {
+        let required_evidence = state
+            .evidence_requirements
+            .iter()
+            .filter(|requirement| requirement.required)
+            .collect::<Vec<_>>();
+        let required_evidence_satisfied = required_evidence
+            .iter()
+            .filter(|requirement| {
+                state.evidence.iter().any(|evidence| {
+                    evidence.requirement_ids.contains(&requirement.id)
+                        && evidence.has_successful_receipt()
+                })
+            })
+            .count() as u64;
+
+        Self {
+            kind: MethodStatusKind::Loaded,
+            linked_issue: state.linked_issue.clone(),
+            work_status: Some(state.status),
+            resume_validity: Some(resume_validity.status),
+            resume_reasons: resume_validity.reasons.clone(),
+            required_evidence_total: required_evidence.len() as u64,
+            required_evidence_satisfied,
+            evidence_total: state.evidence.len() as u64,
+            gates_pending: state
+                .gates
+                .iter()
+                .filter(|gate| gate.status == MethodGateStatus::Pending)
+                .count() as u64,
+            gates_failed: state
+                .gates
+                .iter()
+                .filter(|gate| gate.status == MethodGateStatus::Failed)
+                .count() as u64,
+            gates_blocked: state
+                .gates
+                .iter()
+                .filter(|gate| gate.status == MethodGateStatus::Blocked)
+                .count() as u64,
+            review_open_blocking: state
+                .review_findings
+                .iter()
+                .filter(|finding| {
+                    finding.status == MethodReviewFindingStatus::Open
+                        && finding.severity == MethodReviewSeverity::Blocking
+                })
+                .count() as u64,
+            review_open_high: state
+                .review_findings
+                .iter()
+                .filter(|finding| {
+                    finding.status == MethodReviewFindingStatus::Open
+                        && finding.severity == MethodReviewSeverity::High
+                })
+                .count() as u64,
+            review_open_medium: state
+                .review_findings
+                .iter()
+                .filter(|finding| {
+                    finding.status == MethodReviewFindingStatus::Open
+                        && finding.severity == MethodReviewSeverity::Medium
+                })
+                .count() as u64,
+            engine_alerts_warned: state
+                .engine_alerts
+                .iter()
+                .filter(|alert| alert.status == MethodEngineAlertStatus::Warned)
+                .count() as u64,
+            engine_alerts_blocked: state
+                .engine_alerts
+                .iter()
+                .filter(|alert| alert.status == MethodEngineAlertStatus::Blocked)
+                .count() as u64,
+            context_packs,
+            diagnostic: None,
+            updated_at_unix_seconds: Some(state.provenance.updated_at_unix_seconds),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(deny_unknown_fields)]
 pub struct MethodState {
     pub schema_version: u32,

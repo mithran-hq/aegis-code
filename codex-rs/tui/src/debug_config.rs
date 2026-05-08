@@ -703,6 +703,7 @@ mod tests {
             enforce_residency: Some(ResidencyRequirement::Us),
             network: None,
             permissions: None,
+            aegis_engine: None,
         };
 
         let user_file = if cfg!(windows) {
@@ -903,6 +904,7 @@ approval_policy = "never"
             enforce_residency: None,
             network: None,
             permissions: None,
+            aegis_engine: None,
         };
 
         let stack = ConfigLayerStack::new(Vec::new(), requirements, requirements_toml)
