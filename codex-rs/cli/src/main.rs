@@ -42,6 +42,13 @@ use codex_core::issue_train::validate_issue_train;
 use codex_core::learned_pack_compiler::LearnedPackCompileResult;
 use codex_core::learned_pack_compiler::LearnedPackCompilerOptions;
 use codex_core::learned_pack_compiler::compile_learned_pack_candidates;
+use codex_core::managed_guidance::AEGIS_CODE_METHOD_GUIDANCE;
+use codex_core::managed_guidance::ManagedGuidanceAction;
+use codex_core::managed_guidance::ManagedGuidanceResult;
+use codex_core::managed_guidance::ManagedGuidanceStatus;
+use codex_core::managed_guidance::apply_managed_guidance;
+use codex_core::managed_guidance::repo_guidance_path;
+use codex_core::managed_guidance::user_guidance_path;
 use codex_core::pr_readiness::PrReadinessReport;
 use codex_core::pr_readiness::PrReadinessSnapshot;
 use codex_core::pr_readiness::PullRequestSnapshot;
@@ -184,6 +191,9 @@ enum Subcommand {
     /// Manage Aegis Code configuration.
     Config(ConfigCommand),
 
+    /// Install or remove Aegis-managed guidance blocks.
+    Guidance(GuidanceCommand),
+
     /// Validate parent-plan and child-task GitHub issue trains.
     IssueTrain(IssueTrainCommand),
 
@@ -296,6 +306,43 @@ struct ConfigImportCodexCommand {
     /// Emit machine-readable JSON.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Parser)]
+#[command(bin_name = "aegis guidance")]
+struct GuidanceCommand {
+    #[command(subcommand)]
+    subcommand: GuidanceSubcommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum GuidanceSubcommand {
+    /// Install or update Aegis-managed guidance blocks.
+    Install(GuidanceEditCommand),
+    /// Remove Aegis-managed guidance blocks.
+    Remove(GuidanceEditCommand),
+}
+
+#[derive(Debug, Clone, Parser)]
+struct GuidanceEditCommand {
+    /// Instruction file target.
+    #[arg(long, value_enum, default_value_t = GuidanceTargetArg::All)]
+    target: GuidanceTargetArg,
+
+    /// Preview exact changes without writing files.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum GuidanceTargetArg {
+    User,
+    Repo,
+    All,
 }
 
 #[derive(Debug, Parser)]
@@ -1432,6 +1479,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             run_config_command(cmd)?;
         }
+        Some(Subcommand::Guidance(cmd)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "guidance",
+            )?;
+            run_guidance_command(cmd, root_config_overrides, interactive).await?;
+        }
         Some(Subcommand::IssueTrain(cmd)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1822,6 +1877,131 @@ fn print_config_import_report(report: &CodexConfigImportReport) {
         println!("Preview only; re-run with --apply to write these settings.");
     } else {
         println!("Preview only; no changes would be written.");
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct GuidanceCliResult {
+    results: Vec<ManagedGuidanceResult>,
+}
+
+async fn run_guidance_command(
+    cmd: GuidanceCommand,
+    root_config_overrides: CliConfigOverrides,
+    interactive: TuiCli,
+) -> anyhow::Result<()> {
+    let config = load_config_for_local_command(root_config_overrides, interactive).await?;
+    let (action, edit) = match cmd.subcommand {
+        GuidanceSubcommand::Install(edit) => (ManagedGuidanceAction::Install, edit),
+        GuidanceSubcommand::Remove(edit) => (ManagedGuidanceAction::Remove, edit),
+    };
+    let paths = guidance_target_paths(&config, edit.target)?;
+    let preview_results = collect_guidance_results(&paths, action, /*dry_run*/ true)?;
+    let has_conflict = preview_results
+        .iter()
+        .any(|result| result.status == ManagedGuidanceStatus::Conflict);
+    let results = if edit.dry_run || has_conflict {
+        preview_results
+    } else {
+        collect_guidance_results(&paths, action, /*dry_run*/ false)?
+    };
+    if edit.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&GuidanceCliResult {
+                results: results.clone(),
+            })?
+        );
+    } else if has_conflict {
+        print_guidance_conflicts(&results);
+    } else {
+        print_guidance_results(&results);
+    }
+
+    if has_conflict {
+        anyhow::bail!("managed guidance conflicts require manual resolution");
+    }
+
+    Ok(())
+}
+
+fn guidance_target_paths(
+    config: &Config,
+    target: GuidanceTargetArg,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let candidates = match target {
+        GuidanceTargetArg::User => vec![user_guidance_path(config)],
+        GuidanceTargetArg::Repo => vec![repo_guidance_path(config)?],
+        GuidanceTargetArg::All => vec![user_guidance_path(config), repo_guidance_path(config)?],
+    };
+    let mut paths = Vec::new();
+    for path in candidates {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
+fn collect_guidance_results(
+    paths: &[PathBuf],
+    action: ManagedGuidanceAction,
+    dry_run: bool,
+) -> anyhow::Result<Vec<ManagedGuidanceResult>> {
+    let mut results = Vec::new();
+    for path in paths {
+        results.push(apply_managed_guidance(
+            path,
+            action,
+            AEGIS_CODE_METHOD_GUIDANCE,
+            dry_run,
+        )?);
+    }
+    Ok(results)
+}
+
+fn print_guidance_results(results: &[ManagedGuidanceResult]) {
+    for result in results {
+        let path = result.path.display();
+        match result.status {
+            ManagedGuidanceStatus::Changed => {
+                if result.dry_run {
+                    println!("Dry run for {path}; no files changed.");
+                    print!("{}", result.diff);
+                    if !result.diff.ends_with('\n') {
+                        println!();
+                    }
+                } else {
+                    let verb = match result.action {
+                        ManagedGuidanceAction::Install => "Installed",
+                        ManagedGuidanceAction::Remove => "Removed",
+                    };
+                    println!("{verb} Aegis-managed guidance in {path}");
+                }
+            }
+            ManagedGuidanceStatus::Noop => {
+                println!("No Aegis-managed guidance changes needed for {path}");
+            }
+            ManagedGuidanceStatus::Conflict => {
+                println!("Conflict in {path}:");
+                for diagnostic in &result.diagnostics {
+                    println!("- {diagnostic}");
+                }
+            }
+        }
+    }
+}
+
+fn print_guidance_conflicts(results: &[ManagedGuidanceResult]) {
+    for result in results
+        .iter()
+        .filter(|result| result.status == ManagedGuidanceStatus::Conflict)
+    {
+        let path = result.path.display();
+        println!("Conflict in {path}:");
+        for diagnostic in &result.diagnostics {
+            println!("- {diagnostic}");
+        }
     }
 }
 
