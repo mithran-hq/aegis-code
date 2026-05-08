@@ -4,6 +4,8 @@ use codex_app_server_protocol::ServerNotification;
 use codex_core::config::Config;
 use codex_protocol::protocol::SessionConfiguredEvent;
 
+use crate::exec_events::ExecCompletedEvent;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodexStatus {
     Running,
@@ -24,6 +26,10 @@ pub(crate) trait EventProcessor {
 
     /// Handle a local exec warning that is not represented as an app-server notification.
     fn process_warning(&mut self, message: String) -> CodexStatus;
+
+    fn process_exec_completed(&mut self, _event: ExecCompletedEvent) -> CodexStatus {
+        CodexStatus::Running
+    }
 
     fn print_final_output(&mut self) {}
 }

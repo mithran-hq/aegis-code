@@ -12,6 +12,7 @@ use crate::thread_status::ThreadWatchActiveGuard;
 use crate::thread_status::ThreadWatchManager;
 use codex_app_server_protocol::AccountRateLimitsUpdatedNotification;
 use codex_app_server_protocol::AdditionalPermissionProfile as V2AdditionalPermissionProfile;
+use codex_app_server_protocol::AegisPreflightDecisionNotification;
 use codex_app_server_protocol::CodexErrorInfo as V2CodexErrorInfo;
 use codex_app_server_protocol::CommandAction as V2ParsedCommand;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
@@ -223,6 +224,16 @@ pub(crate) async fn apply_bespoke_event_handling(
             };
             outgoing
                 .send_server_notification(ServerNotification::McpServerStatusUpdated(notification))
+                .await;
+        }
+        EventMsg::AegisPreflightDecision(decision) => {
+            outgoing
+                .send_server_notification(ServerNotification::AegisPreflightDecision(
+                    AegisPreflightDecisionNotification {
+                        thread_id: conversation_id.to_string(),
+                        decision,
+                    },
+                ))
                 .await;
         }
         EventMsg::Warning(warning_event) => {

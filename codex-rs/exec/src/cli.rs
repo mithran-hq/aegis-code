@@ -74,6 +74,19 @@ pub struct Cli {
     )]
     pub last_message_file: Option<PathBuf>,
 
+    /// Method-state JSON artifact to load before the turn and update after completion.
+    #[arg(long = "method-state", value_name = "FILE", global = true)]
+    pub method_state: Option<PathBuf>,
+
+    /// Write the updated method-state JSON to this path instead of overwriting --method-state.
+    #[arg(
+        long = "method-state-output",
+        value_name = "FILE",
+        global = true,
+        requires = "method_state"
+    )]
+    pub method_state_output: Option<PathBuf>,
+
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
     /// a prompt is also provided, stdin is appended as a `<stdin>` block.

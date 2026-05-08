@@ -23,6 +23,7 @@ use codex_app_server_client::ExecServerRuntimePaths;
 use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::CodexErrorInfo as AppCodexErrorInfo;
 use codex_app_server_protocol::ConfigWarningNotification;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::McpServerElicitationAction;
@@ -84,9 +85,11 @@ use codex_otel::traceparent_context_from_env;
 use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::SandboxMode;
+use codex_protocol::method_state::MethodState;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::ActivePermissionProfileModification;
 use codex_protocol::models::PermissionProfile;
+use codex_protocol::protocol::AegisPreflightVerdict;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::ReviewTarget;
@@ -114,6 +117,8 @@ pub use exec_events::CollabToolCallStatus;
 pub use exec_events::CommandExecutionItem;
 pub use exec_events::CommandExecutionStatus;
 pub use exec_events::ErrorItem;
+pub use exec_events::ExecCompletedEvent;
+pub use exec_events::ExecExitClassification;
 pub use exec_events::FileChangeItem;
 pub use exec_events::FileUpdateChange;
 pub use exec_events::ItemCompletedEvent;
@@ -213,6 +218,155 @@ struct ExecRunArgs {
     prompt: Option<String>,
     skip_git_repo_check: bool,
     stderr_with_ansi: bool,
+    method_state: Option<MethodState>,
+    method_state_output_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecExitCode {
+    Success = 0,
+    MethodGateFailure = 20,
+    ToolDenial = 21,
+    ProviderFailure = 22,
+    InternalError = 23,
+}
+
+impl ExecExitCode {
+    fn code(self) -> i32 {
+        self as i32
+    }
+
+    fn classification(self) -> ExecExitClassification {
+        match self {
+            Self::Success => ExecExitClassification::Success,
+            Self::MethodGateFailure => ExecExitClassification::MethodGateFailure,
+            Self::ToolDenial => ExecExitClassification::ToolDenial,
+            Self::ProviderFailure => ExecExitClassification::ProviderFailure,
+            Self::InternalError => ExecExitClassification::InternalError,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ExecOutcome {
+    exit_code: ExecExitCode,
+    message: String,
+}
+
+impl ExecOutcome {
+    fn success() -> Self {
+        Self {
+            exit_code: ExecExitCode::Success,
+            message: "success".to_string(),
+        }
+    }
+
+    fn set_failure(&mut self, exit_code: ExecExitCode, message: impl Into<String>) {
+        if self.exit_code == ExecExitCode::Success {
+            self.exit_code = exit_code;
+            self.message = message.into();
+        }
+    }
+}
+
+fn classify_turn_error(
+    info: Option<&AppCodexErrorInfo>,
+    message: &str,
+    details: Option<&str>,
+) -> ExecExitCode {
+    if message_contains_method_gate(message) || details.is_some_and(message_contains_method_gate) {
+        return ExecExitCode::MethodGateFailure;
+    }
+    if message_contains_tool_denial(message) || details.is_some_and(message_contains_tool_denial) {
+        return ExecExitCode::ToolDenial;
+    }
+    if message_contains_provider_failure(message)
+        || details.is_some_and(message_contains_provider_failure)
+    {
+        return ExecExitCode::ProviderFailure;
+    }
+
+    match info {
+        Some(
+            AppCodexErrorInfo::UsageLimitExceeded
+            | AppCodexErrorInfo::ServerOverloaded
+            | AppCodexErrorInfo::HttpConnectionFailed { .. }
+            | AppCodexErrorInfo::ResponseStreamConnectionFailed { .. }
+            | AppCodexErrorInfo::Unauthorized
+            | AppCodexErrorInfo::ResponseStreamDisconnected { .. }
+            | AppCodexErrorInfo::ResponseTooManyFailedAttempts { .. },
+        ) => ExecExitCode::ProviderFailure,
+        Some(AppCodexErrorInfo::CyberPolicy) => ExecExitCode::ToolDenial,
+        Some(AppCodexErrorInfo::SandboxError) => ExecExitCode::ToolDenial,
+        Some(
+            AppCodexErrorInfo::ContextWindowExceeded
+            | AppCodexErrorInfo::InternalServerError
+            | AppCodexErrorInfo::BadRequest
+            | AppCodexErrorInfo::ThreadRollbackFailed
+            | AppCodexErrorInfo::ActiveTurnNotSteerable { .. }
+            | AppCodexErrorInfo::Other,
+        )
+        | None => ExecExitCode::InternalError,
+    }
+}
+
+fn message_contains_method_gate(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("aegis preflight")
+        || lower.contains("method gate")
+        || lower.contains("method_state")
+        || lower.contains("method state")
+        || lower.contains("task scope")
+        || lower.contains("required evidence")
+}
+
+fn message_contains_tool_denial(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("tool denial")
+        || lower.contains("tool denied")
+        || lower.contains("not supported in exec mode")
+        || lower.contains("approval is not supported")
+        || lower.contains("blocked")
+        || lower.contains("sandbox")
+        || lower.contains("cyber")
+}
+
+fn message_contains_provider_failure(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("provider")
+        || lower.contains("rate_limit")
+        || lower.contains("rate limit")
+        || lower.contains("server error")
+        || lower.contains("server overloaded")
+        || lower.contains("unexpected status")
+        || lower.contains("stream disconnected")
+        || lower.contains("response stream")
+        || lower.contains("connection failed")
+        || lower.contains("failed to connect")
+        || lower.contains("/responses")
+}
+
+fn turn_error_message(error: &codex_app_server_protocol::TurnError) -> String {
+    match error.additional_details.as_deref() {
+        Some(details) if !details.is_empty() => format!("{} ({details})", error.message),
+        _ => error.message.clone(),
+    }
+}
+
+fn exec_completed_event(
+    outcome: &ExecOutcome,
+    thread_id: Option<&str>,
+    turn_id: Option<&str>,
+    method_state_path: Option<&Path>,
+) -> ExecCompletedEvent {
+    ExecCompletedEvent {
+        exit_code: outcome.exit_code.code(),
+        classification: outcome.exit_code.classification(),
+        message: outcome.message.clone(),
+        thread_id: thread_id.map(str::to_string),
+        turn_id: turn_id.map(str::to_string),
+        method_state_path: method_state_path.map(|path| path.display().to_string()),
+    }
 }
 
 fn exec_root_span() -> tracing::Span {
@@ -252,6 +406,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         removed_full_auto,
         color,
         last_message_file,
+        method_state: method_state_path,
+        method_state_output: method_state_output_path,
         json: json_mode,
         prompt,
         output_schema: output_schema_path,
@@ -297,7 +453,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         #[allow(clippy::print_stderr)]
         Err(e) => {
             eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
+            std::process::exit(ExecExitCode::InternalError.code());
         }
     };
 
@@ -315,7 +471,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         Ok(codex_home) => codex_home,
         Err(err) => {
             eprintln!("Error finding codex home: {err}");
-            std::process::exit(1);
+            std::process::exit(ExecExitCode::InternalError.code());
         }
     };
 
@@ -348,7 +504,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
             } else {
                 eprintln!("Error loading config.toml: {err}");
             }
-            std::process::exit(1);
+            std::process::exit(ExecExitCode::InternalError.code());
         }
     };
 
@@ -443,7 +599,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
                 "Error loading rules:\n{}",
                 format_exec_policy_error_with_source(&err)
             );
-            std::process::exit(1);
+            std::process::exit(ExecExitCode::InternalError.code());
         }
     }
 
@@ -459,7 +615,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     .await
     {
         eprintln!("{err}");
-        std::process::exit(1);
+        std::process::exit(ExecExitCode::ProviderFailure.code());
     }
 
     let otel = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -510,6 +666,26 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         arg0_paths.codex_linux_sandbox_exe.clone(),
     )?;
     let state_db = codex_core::init_state_db(&config).await;
+    let method_state = match method_state_path.as_deref() {
+        Some(path) => match load_method_state_json(path) {
+            Ok(state) if state.is_closure_valid() => Some(state),
+            Ok(_) => {
+                eprintln!(
+                    "failed to load method-state JSON {}: closed method state is missing required closure evidence",
+                    path.display()
+                );
+                std::process::exit(ExecExitCode::InternalError.code());
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(ExecExitCode::InternalError.code());
+            }
+        },
+        None => None,
+    };
+    let method_state_output_path = method_state_path
+        .clone()
+        .map(|input_path| method_state_output_path.unwrap_or(input_path));
     let in_process_start_args = InProcessClientStartArgs {
         arg0_paths,
         config: std::sync::Arc::new(config.clone()),
@@ -545,6 +721,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         prompt,
         skip_git_repo_check,
         stderr_with_ansi,
+        method_state,
+        method_state_output_path,
     })
     .instrument(exec_span)
     .await
@@ -565,6 +743,8 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         prompt,
         skip_git_repo_check,
         stderr_with_ansi,
+        method_state,
+        method_state_output_path,
     } = args;
 
     let mut event_processor: Box<dyn EventProcessor> = match json_mode {
@@ -652,7 +832,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         && get_git_repo_root(&default_cwd).is_none()
     {
         eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
-        std::process::exit(1);
+        std::process::exit(ExecExitCode::InternalError.code());
     }
 
     let mut request_ids = RequestIdSequencer::new();
@@ -671,7 +851,11 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 &client,
                 ClientRequest::ThreadResume {
                     request_id: request_ids.next(),
-                    params: thread_resume_params_from_config(&config, thread_id),
+                    params: thread_resume_params_from_config(
+                        &config,
+                        thread_id,
+                        method_state.clone(),
+                    ),
                 },
                 "thread/resume",
             )
@@ -686,7 +870,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 &client,
                 ClientRequest::ThreadStart {
                     request_id: request_ids.next(),
-                    params: thread_start_params_from_config(&config),
+                    params: thread_start_params_from_config(&config, method_state.clone()),
                 },
                 "thread/start",
             )
@@ -702,7 +886,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
             &client,
             ClientRequest::ThreadStart {
                 request_id: request_ids.next(),
-                params: thread_start_params_from_config(&config),
+                params: thread_start_params_from_config(&config, method_state.clone()),
             },
             "thread/start",
         )
@@ -806,9 +990,8 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     exec_span.record("turn.id", task_id.as_str());
 
     // Run the loop until the task is complete.
-    // Track whether a fatal error was reported by the server so we can
-    // exit with a non-zero status for automation-friendly signaling.
-    let mut error_seen = false;
+    // Track the first fatal outcome so automation can distinguish failure causes.
+    let mut outcome = ExecOutcome::success();
     let mut interrupt_channel_open = true;
     let primary_thread_id_for_requests = primary_thread_id.to_string();
     loop {
@@ -844,7 +1027,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
 
         match server_event {
             AppServerEvent::ServerRequest(request) => {
-                handle_server_request(&client, request, &mut error_seen).await;
+                handle_server_request(&client, request, &mut outcome).await;
             }
             AppServerEvent::ServerNotification(mut notification) => {
                 if let ServerNotification::Error(payload) = &notification {
@@ -852,18 +1035,52 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                         && payload.turn_id == task_id
                         && !payload.will_retry
                     {
-                        error_seen = true;
+                        let exit_code = classify_turn_error(
+                            payload.error.codex_error_info.as_ref(),
+                            &payload.error.message,
+                            payload.error.additional_details.as_deref(),
+                        );
+                        outcome.set_failure(exit_code, turn_error_message(&payload.error));
+                    }
+                } else if let ServerNotification::AegisPreflightDecision(payload) = &notification {
+                    if payload.thread_id == primary_thread_id_for_requests
+                        && payload.decision.turn_id == task_id
+                    {
+                        match payload.decision.verdict {
+                            AegisPreflightVerdict::Allow => {}
+                            AegisPreflightVerdict::RequireConfirmation => outcome.set_failure(
+                                ExecExitCode::MethodGateFailure,
+                                payload.decision.reason.clone(),
+                            ),
+                            AegisPreflightVerdict::Block => outcome.set_failure(
+                                ExecExitCode::ToolDenial,
+                                payload.decision.reason.clone(),
+                            ),
+                        }
                     }
                 } else if let ServerNotification::TurnCompleted(payload) = &notification
                     && payload.thread_id == primary_thread_id_for_requests
                     && payload.turn.id == task_id
-                    && matches!(
-                        payload.turn.status,
-                        codex_app_server_protocol::TurnStatus::Failed
-                            | codex_app_server_protocol::TurnStatus::Interrupted
-                    )
                 {
-                    error_seen = true;
+                    match payload.turn.status {
+                        codex_app_server_protocol::TurnStatus::Failed => {
+                            if let Some(error) = payload.turn.error.as_ref() {
+                                let exit_code = classify_turn_error(
+                                    error.codex_error_info.as_ref(),
+                                    &error.message,
+                                    error.additional_details.as_deref(),
+                                );
+                                outcome.set_failure(exit_code, turn_error_message(error));
+                            } else {
+                                outcome.set_failure(ExecExitCode::InternalError, "turn failed");
+                            }
+                        }
+                        codex_app_server_protocol::TurnStatus::Interrupted => {
+                            outcome.set_failure(ExecExitCode::InternalError, "turn interrupted");
+                        }
+                        codex_app_server_protocol::TurnStatus::Completed
+                        | codex_app_server_protocol::TurnStatus::InProgress => {}
+                    }
                 }
 
                 maybe_backfill_turn_completed_items(
@@ -902,7 +1119,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 event_processor.process_warning(message);
             }
             AppServerEvent::Disconnected { message } => {
-                error_seen = true;
+                outcome.set_failure(ExecExitCode::InternalError, message.clone());
                 warn!("{message}");
                 event_processor.process_warning(message);
                 break;
@@ -913,9 +1130,20 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     if let Err(err) = client.shutdown().await {
         warn!("in-process app-server shutdown failed: {err}");
     }
+    if let Some(path) = method_state_output_path.as_deref()
+        && let Err(err) = write_final_method_state(state_db.as_ref(), primary_thread_id, path).await
+    {
+        outcome.set_failure(ExecExitCode::InternalError, err.to_string());
+    }
+    event_processor.process_exec_completed(exec_completed_event(
+        &outcome,
+        Some(&primary_thread_id_for_requests),
+        Some(&task_id),
+        method_state_output_path.as_deref(),
+    ));
     event_processor.print_final_output();
-    if error_seen {
-        std::process::exit(1);
+    if outcome.exit_code != ExecExitCode::Success {
+        std::process::exit(outcome.exit_code.code());
     }
 
     Ok(())
@@ -965,7 +1193,10 @@ async fn start_app_server_client(
         .map_err(|err| anyhow::anyhow!("failed to initialize in-process app-server client: {err}"))
 }
 
-fn thread_start_params_from_config(config: &Config) -> ThreadStartParams {
+fn thread_start_params_from_config(
+    config: &Config,
+    method_state: Option<MethodState>,
+) -> ThreadStartParams {
     let permissions = permissions_selection_from_config(config);
     let sandbox = permissions.is_none().then(|| {
         sandbox_mode_from_permission_profile(
@@ -982,12 +1213,19 @@ fn thread_start_params_from_config(config: &Config) -> ThreadStartParams {
         sandbox: sandbox.flatten(),
         permissions,
         config: config_request_overrides_from_config(config),
+        method_state: method_state.map(|state| {
+            serde_json::to_value(state).expect("MethodState should serialize for thread/start")
+        }),
         ephemeral: Some(config.ephemeral),
         ..ThreadStartParams::default()
     }
 }
 
-fn thread_resume_params_from_config(config: &Config, thread_id: String) -> ThreadResumeParams {
+fn thread_resume_params_from_config(
+    config: &Config,
+    thread_id: String,
+    method_state: Option<MethodState>,
+) -> ThreadResumeParams {
     let permissions = permissions_selection_from_config(config);
     let sandbox = permissions.is_none().then(|| {
         sandbox_mode_from_permission_profile(
@@ -1005,6 +1243,9 @@ fn thread_resume_params_from_config(config: &Config, thread_id: String) -> Threa
         sandbox: sandbox.flatten(),
         permissions,
         config: config_request_overrides_from_config(config),
+        method_state: method_state.map(|state| {
+            serde_json::to_value(state).expect("MethodState should serialize for thread/resume")
+        }),
         ..ThreadResumeParams::default()
     }
 }
@@ -1235,6 +1476,9 @@ fn should_process_notification(
         }
         ServerNotification::ThreadTokenUsageUpdated(notification) => {
             notification.thread_id == thread_id && notification.turn_id == turn_id
+        }
+        ServerNotification::AegisPreflightDecision(notification) => {
+            notification.thread_id == thread_id && notification.decision.turn_id == turn_id
         }
         ServerNotification::TurnCompleted(notification) => {
             notification.thread_id == thread_id && notification.turn.id == turn_id
@@ -1559,9 +1803,10 @@ fn server_request_method_name(request: &ServerRequest) -> String {
 async fn handle_server_request(
     client: &AppServerClient,
     request: ServerRequest,
-    error_seen: &mut bool,
+    outcome: &mut ExecOutcome,
 ) {
     let method = server_request_method_name(&request);
+    let mut rejected_message = None;
     let handle_result = match request {
         ServerRequest::McpServerElicitationRequest { request_id, .. } => {
             // Exec auto-cancels elicitation instead of surfacing it
@@ -1581,103 +1826,73 @@ async fn handle_server_request(
             }
         }
         ServerRequest::CommandExecutionRequestApproval { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "command execution approval is not supported in exec mode for thread `{}`",
-                    params.thread_id
-                ),
-            )
-            .await
+            let message = format!(
+                "command execution approval is not supported in exec mode for thread `{}`",
+                params.thread_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::FileChangeRequestApproval { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "file change approval is not supported in exec mode for thread `{}`",
-                    params.thread_id
-                ),
-            )
-            .await
+            let message = format!(
+                "file change approval is not supported in exec mode for thread `{}`",
+                params.thread_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::ToolRequestUserInput { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "request_user_input is not supported in exec mode for thread `{}`",
-                    params.thread_id
-                ),
-            )
-            .await
+            let message = format!(
+                "request_user_input is not supported in exec mode for thread `{}`",
+                params.thread_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::DynamicToolCall { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "dynamic tool calls are not supported in exec mode for thread `{}`",
-                    params.thread_id
-                ),
-            )
-            .await
+            let message = format!(
+                "dynamic tool calls are not supported in exec mode for thread `{}`",
+                params.thread_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::ChatgptAuthTokensRefresh { request_id, .. } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                "chatgpt auth token refresh is not supported in exec mode".to_string(),
-            )
-            .await
+            let message = "chatgpt auth token refresh is not supported in exec mode".to_string();
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::ApplyPatchApproval { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "apply_patch approval is not supported in exec mode for thread `{}`",
-                    params.conversation_id
-                ),
-            )
-            .await
+            let message = format!(
+                "apply_patch approval is not supported in exec mode for thread `{}`",
+                params.conversation_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::ExecCommandApproval { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "exec command approval is not supported in exec mode for thread `{}`",
-                    params.conversation_id
-                ),
-            )
-            .await
+            let message = format!(
+                "exec command approval is not supported in exec mode for thread `{}`",
+                params.conversation_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
         ServerRequest::PermissionsRequestApproval { request_id, params } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                format!(
-                    "permissions approval is not supported in exec mode for thread `{}`",
-                    params.thread_id
-                ),
-            )
-            .await
+            let message = format!(
+                "permissions approval is not supported in exec mode for thread `{}`",
+                params.thread_id
+            );
+            rejected_message = Some(message.clone());
+            reject_server_request(client, request_id, &method, message).await
         }
     };
 
     if let Err(err) = handle_result {
-        *error_seen = true;
+        outcome.set_failure(ExecExitCode::InternalError, err.clone());
         warn!("{err}");
+    } else if let Some(message) = rejected_message {
+        outcome.set_failure(ExecExitCode::ToolDenial, message);
     }
 }
 
@@ -1691,7 +1906,7 @@ fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
                 "Failed to read output schema file {}: {err}",
                 path.display()
             );
-            std::process::exit(1);
+            std::process::exit(ExecExitCode::InternalError.code());
         }
     };
 
@@ -1702,9 +1917,67 @@ fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
                 "Output schema file {} is not valid JSON: {err}",
                 path.display()
             );
-            std::process::exit(1);
+            std::process::exit(ExecExitCode::InternalError.code());
         }
     }
+}
+
+fn load_method_state_json(path: &Path) -> anyhow::Result<MethodState> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to read method-state JSON {}: {error}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str::<MethodState>(&contents).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to parse method-state JSON {}: {error}",
+            path.display()
+        )
+    })
+}
+
+async fn write_final_method_state(
+    state_db: Option<&StateDbHandle>,
+    thread_id: ThreadId,
+    path: &Path,
+) -> anyhow::Result<()> {
+    let state_db = state_db.ok_or_else(|| {
+        anyhow::anyhow!(
+            "cannot write method-state JSON {}: state database is unavailable",
+            path.display()
+        )
+    })?;
+    let record = state_db
+        .get_thread_method_state(thread_id)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot write method-state JSON {}: no method state was recorded for thread {}",
+                path.display(),
+                thread_id
+            )
+        })?;
+    write_method_state_json_atomic(path, &record.state).await
+}
+
+async fn write_method_state_json_atomic(path: &Path, state: &MethodState) -> anyhow::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    tokio::fs::create_dir_all(parent).await?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("method-state.json");
+    let tmp_path = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
+    let contents = serde_json::to_string_pretty(state)?;
+    tokio::fs::write(&tmp_path, contents).await?;
+    tokio::fs::rename(&tmp_path, path).await.map_err(|error| {
+        let _ = std::fs::remove_file(&tmp_path);
+        anyhow::anyhow!(
+            "failed to write method-state JSON {} atomically: {error}",
+            path.display()
+        )
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

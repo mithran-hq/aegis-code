@@ -1,6 +1,8 @@
 // GENERATED CODE! DO NOT MODIFY BY HAND!
 
 export type { AbsolutePathBuf } from "./AbsolutePathBuf";
+export type { AegisPreflightVerdict } from "./AegisPreflightVerdict";
+export type { AegisSecretRiskCategory } from "./AegisSecretRiskCategory";
 export type { AgentPath } from "./AgentPath";
 export type { ApplyPatchApprovalParams } from "./ApplyPatchApprovalParams";
 export type { ApplyPatchApprovalResponse } from "./ApplyPatchApprovalResponse";

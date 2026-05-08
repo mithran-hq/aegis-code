@@ -30,6 +30,7 @@ use crate::exec_events::CollabToolCallStatus;
 use crate::exec_events::CommandExecutionItem;
 use crate::exec_events::CommandExecutionStatus as ExecCommandExecutionStatus;
 use crate::exec_events::ErrorItem;
+use crate::exec_events::ExecCompletedEvent;
 use crate::exec_events::FileChangeItem;
 use crate::exec_events::FileUpdateChange;
 use crate::exec_events::ItemCompletedEvent;
@@ -441,6 +442,10 @@ impl EventProcessorWithJsonOutput {
                 events.push(ThreadEvent::Error(error));
                 CodexStatus::Running
             }
+            ServerNotification::AegisPreflightDecision(notification) => {
+                events.push(ThreadEvent::AegisPreflightDecision(notification.decision));
+                CodexStatus::Running
+            }
             ServerNotification::DeprecationNotice(notification) => {
                 let message = match notification.details {
                     Some(details) if !details.is_empty() => {
@@ -611,6 +616,11 @@ impl EventProcessor for EventProcessorWithJsonOutput {
             self.emit(event);
         }
         collected.status
+    }
+
+    fn process_exec_completed(&mut self, event: ExecCompletedEvent) -> CodexStatus {
+        self.emit(ThreadEvent::ExecCompleted(event));
+        CodexStatus::Running
     }
 
     fn print_final_output(&mut self) {

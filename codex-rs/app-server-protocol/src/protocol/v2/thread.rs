@@ -122,6 +122,10 @@ pub struct ThreadStartParams {
     pub permissions: Option<PermissionProfileSelectionParams>,
     #[ts(optional = nullable)]
     pub config: Option<HashMap<String, JsonValue>>,
+    /// Optional method-state snapshot to install before the first turn starts.
+    #[experimental("thread/start.methodState")]
+    #[ts(optional = nullable)]
+    pub method_state: Option<JsonValue>,
     #[ts(optional = nullable)]
     pub service_name: Option<String>,
     #[ts(optional = nullable)]
@@ -279,6 +283,10 @@ pub struct ThreadResumeParams {
     pub permissions: Option<PermissionProfileSelectionParams>,
     #[ts(optional = nullable)]
     pub config: Option<HashMap<String, serde_json::Value>>,
+    /// Optional method-state snapshot to install before the resumed thread accepts turns.
+    #[experimental("thread/resume.methodState")]
+    #[ts(optional = nullable)]
+    pub method_state: Option<JsonValue>,
     #[ts(optional = nullable)]
     pub base_instructions: Option<String>,
     #[ts(optional = nullable)]

@@ -1,4 +1,5 @@
 use codex_protocol::models::WebSearchAction;
+use codex_protocol::protocol::AegisPreflightDecisionEvent;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -34,6 +35,12 @@ pub enum ThreadEvent {
     /// Represents an unrecoverable error emitted directly by the event stream.
     #[serde(rename = "error")]
     Error(ThreadErrorEvent),
+    /// Aegis policy preflight decision for a tool invocation.
+    #[serde(rename = "aegis.preflight_decision")]
+    AegisPreflightDecision(AegisPreflightDecisionEvent),
+    /// Final exec process outcome, emitted as the last JSONL event.
+    #[serde(rename = "exec.completed")]
+    ExecCompleted(ExecCompletedEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -88,6 +95,38 @@ pub struct ItemUpdatedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct ThreadErrorEvent {
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecExitClassification {
+    Success,
+    MethodGateFailure,
+    ToolDenial,
+    ProviderFailure,
+    InternalError,
+}
+
+impl ExecExitClassification {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::MethodGateFailure => "method_gate_failure",
+            Self::ToolDenial => "tool_denial",
+            Self::ProviderFailure => "provider_failure",
+            Self::InternalError => "internal_error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct ExecCompletedEvent {
+    pub exit_code: i32,
+    pub classification: ExecExitClassification,
+    pub message: String,
+    pub thread_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub method_state_path: Option<String>,
 }
 
 /// Canonical representation of a thread item and its domain-specific payload.

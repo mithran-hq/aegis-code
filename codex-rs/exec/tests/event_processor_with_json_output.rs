@@ -1,3 +1,4 @@
+use codex_app_server_protocol::AegisPreflightDecisionNotification;
 use codex_app_server_protocol::CollabAgentState as ApiCollabAgentState;
 use codex_app_server_protocol::CollabAgentStatus as ApiCollabAgentStatus;
 use codex_app_server_protocol::CollabAgentTool;
@@ -31,6 +32,8 @@ use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::WebSearchAction;
+use codex_protocol::protocol::AegisPreflightDecisionEvent;
+use codex_protocol::protocol::AegisPreflightVerdict;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SessionConfiguredEvent;
 use codex_utils_absolute_path::test_support::PathBufExt;
@@ -100,6 +103,37 @@ fn map_todo_items_preserves_text_and_completion_state() {
                 completed: true,
             },
         ]
+    );
+}
+
+#[test]
+fn collect_thread_events_includes_aegis_preflight_decision() {
+    let mut processor = EventProcessorWithJsonOutput::new(None);
+    let decision = AegisPreflightDecisionEvent {
+        call_id: "call-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        tool_name: "exec_command".to_string(),
+        verdict: AegisPreflightVerdict::RequireConfirmation,
+        risk_category: None,
+        reason: "missing task scope".to_string(),
+        required_evidence_ids: vec!["evidence:task-scope".to_string()],
+        command: Some(vec!["git".to_string(), "push".to_string()]),
+        paths: Vec::new(),
+    };
+
+    let collected = processor.collect_thread_events(ServerNotification::AegisPreflightDecision(
+        AegisPreflightDecisionNotification {
+            thread_id: "thread-1".to_string(),
+            decision: decision.clone(),
+        },
+    ));
+
+    assert_eq!(
+        collected,
+        CollectedThreadEvents {
+            events: vec![ThreadEvent::AegisPreflightDecision(decision)],
+            status: CodexStatus::Running,
+        }
     );
 }
 
@@ -1214,6 +1248,7 @@ fn token_usage_update_is_emitted_on_turn_completion() {
                         total_tokens: 42,
                         input_tokens: 10,
                         cached_input_tokens: 3,
+                        cache_creation_input_tokens: 0,
                         output_tokens: 29,
                         reasoning_output_tokens: 7,
                     },
@@ -1221,6 +1256,7 @@ fn token_usage_update_is_emitted_on_turn_completion() {
                         total_tokens: 42,
                         input_tokens: 10,
                         cached_input_tokens: 3,
+                        cache_creation_input_tokens: 0,
                         output_tokens: 29,
                         reasoning_output_tokens: 7,
                     },

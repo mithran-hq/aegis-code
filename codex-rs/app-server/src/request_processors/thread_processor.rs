@@ -16,6 +16,17 @@ struct ThreadListFilters {
     use_state_db_only: bool,
 }
 
+fn decode_method_state_param(
+    method_state: Option<serde_json::Value>,
+) -> Result<Option<codex_protocol::method_state::MethodState>, JSONRPCErrorError> {
+    method_state
+        .map(|value| {
+            serde_json::from_value(value)
+                .map_err(|err| invalid_request(format!("invalid method state: {err}")))
+        })
+        .transpose()
+}
+
 fn collect_resume_override_mismatches(
     request: &ThreadResumeParams,
     config_snapshot: &ThreadConfigSnapshot,
@@ -793,6 +804,7 @@ impl ThreadRequestProcessor {
             sandbox,
             permissions,
             config,
+            method_state,
             service_name,
             base_instructions,
             developer_instructions,
@@ -854,6 +866,7 @@ impl ThreadRequestProcessor {
                 config,
                 typesafe_overrides,
                 dynamic_tools,
+                method_state,
                 session_start_source,
                 thread_source.map(Into::into),
                 environment_selections,
@@ -938,6 +951,7 @@ impl ThreadRequestProcessor {
         config_overrides: Option<HashMap<String, serde_json::Value>>,
         typesafe_overrides: ConfigOverrides,
         dynamic_tools: Option<Vec<ApiDynamicToolSpec>>,
+        method_state: Option<serde_json::Value>,
         session_start_source: Option<codex_app_server_protocol::ThreadStartSource>,
         thread_source: Option<codex_protocol::protocol::ThreadSource>,
         environments: Option<Vec<TurnEnvironmentSelection>>,
@@ -945,6 +959,7 @@ impl ThreadRequestProcessor {
         experimental_raw_events: bool,
         request_trace: Option<W3cTraceContext>,
     ) -> Result<(), JSONRPCErrorError> {
+        let method_state = decode_method_state_param(method_state)?;
         let requested_cwd = typesafe_overrides.cwd.clone();
         let mut config = config_manager
             .load_with_overrides(config_overrides.clone(), typesafe_overrides.clone())
@@ -1074,6 +1089,13 @@ impl ThreadRequestProcessor {
                 CodexErr::InvalidRequest(message) => invalid_request(message),
                 err => internal_error(format!("error creating thread: {err}")),
             })?;
+
+        if let Some(method_state) = method_state {
+            thread
+                .replace_method_state(method_state)
+                .await
+                .map_err(|err| invalid_request(format!("invalid method state: {err}")))?;
+        }
 
         Self::set_app_server_client_info(
             thread.as_ref(),
@@ -2319,6 +2341,7 @@ impl ThreadRequestProcessor {
             sandbox,
             permissions,
             config: mut request_overrides,
+            method_state,
             base_instructions,
             developer_instructions,
             personality,
@@ -2326,6 +2349,13 @@ impl ThreadRequestProcessor {
             persist_extended_history: _persist_extended_history,
         } = params;
         let include_turns = !exclude_turns;
+        let method_state = match decode_method_state_param(method_state) {
+            Ok(method_state) => method_state,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return Ok(());
+            }
+        };
 
         let (thread_history, resume_source_thread) = match if let Some(history) = history {
             self.resume_thread_from_history(history.as_slice())
@@ -2398,6 +2428,17 @@ impl ThreadRequestProcessor {
                 session_configured,
                 ..
             }) => {
+                if let Some(method_state) = method_state {
+                    if let Err(err) = codex_thread.replace_method_state(method_state).await {
+                        self.outgoing
+                            .send_error(
+                                request_id,
+                                invalid_request(format!("invalid method state: {err}")),
+                            )
+                            .await;
+                        return Ok(());
+                    }
+                }
                 if let Err(err) = Self::set_app_server_client_info(
                     codex_thread.as_ref(),
                     app_server_client_name,

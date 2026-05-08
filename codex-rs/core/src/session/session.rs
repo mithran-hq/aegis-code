@@ -790,7 +790,7 @@ impl Session {
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn replace_method_state(
+    pub async fn replace_method_state(
         &self,
         method_state: MethodState,
     ) -> anyhow::Result<MethodStatePersistenceStatus> {

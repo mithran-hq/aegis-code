@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AegisPreflightVerdict": {
+      "enum": [
+        "allow",
+        "block",
+        "require_confirmation"
+      ],
+      "type": "string"
+    },
+    "AegisSecretRiskCategory": {
+      "enum": [
+        "sensitive_command",
+        "cloud_mutation",
+        "repository_mutation",
+        "credential_access",
+        "destructive_action",
+        "sandbox_escape",
+        "other"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "call_id": {
+      "type": "string"
+    },
+    "command": {
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "paths": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "required_evidence_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "risk_category": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AegisSecretRiskCategory"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "tool_name": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/definitions/AegisPreflightVerdict"
+    }
+  },
+  "required": [
+    "call_id",
+    "reason",
+    "threadId",
+    "tool_name",
+    "turn_id",
+    "verdict"
+  ],
+  "title": "AegisPreflightDecisionNotification",
+  "type": "object"
+}

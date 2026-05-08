@@ -3,9 +3,10 @@
 
 use core_test_support::responses;
 use core_test_support::test_codex_exec::test_codex_exec;
+use predicates::str::contains;
 
-/// Verify that when the server reports an error, `codex-exec` exits with a
-/// non-zero status code so automation can detect failures.
+/// Verify that when the server reports an error, `codex-exec` exits with the
+/// provider-failure status code so automation can classify the failure.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exits_non_zero_when_server_reports_error() -> anyhow::Result<()> {
     let test = test_codex_exec();
@@ -27,7 +28,9 @@ async fn exits_non_zero_when_server_reports_error() -> anyhow::Result<()> {
         .arg("tell me something")
         .arg("--experimental-json")
         .assert()
-        .code(1);
+        .code(22)
+        .stdout(contains("\"type\":\"exec.completed\""))
+        .stdout(contains("\"classification\":\"provider_failure\""));
 
     Ok(())
 }

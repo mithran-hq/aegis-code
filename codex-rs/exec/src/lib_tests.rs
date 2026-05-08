@@ -10,6 +10,7 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use pretty_assertions::assert_eq;
 use std::io;
 use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tempfile::tempdir;
@@ -404,6 +405,75 @@ fn canceled_mcp_server_elicitation_response_uses_cancel_action() {
     );
 }
 
+#[test]
+fn classify_turn_error_distinguishes_ci_failure_classes() {
+    assert_eq!(
+        classify_turn_error(
+            None,
+            "Aegis preflight blocked command: missing loaded method state",
+            None,
+        ),
+        ExecExitCode::MethodGateFailure
+    );
+    assert_eq!(
+        classify_turn_error(
+            Some(&AppCodexErrorInfo::CyberPolicy),
+            "policy denied tool use",
+            None,
+        ),
+        ExecExitCode::ToolDenial
+    );
+    assert_eq!(
+        classify_turn_error(
+            Some(&AppCodexErrorInfo::HttpConnectionFailed {
+                http_status_code: Some(503),
+            }),
+            "provider unavailable",
+            None,
+        ),
+        ExecExitCode::ProviderFailure
+    );
+    assert_eq!(
+        classify_turn_error(
+            None,
+            "unexpected status 404 Not Found, url: http://127.0.0.1/v1/responses",
+            None,
+        ),
+        ExecExitCode::ProviderFailure
+    );
+    assert_eq!(
+        classify_turn_error(
+            Some(&AppCodexErrorInfo::Other),
+            "unexpected runtime error",
+            None
+        ),
+        ExecExitCode::InternalError
+    );
+}
+
+#[test]
+fn exec_completed_event_includes_stable_ci_fields() {
+    let mut outcome = ExecOutcome::success();
+    outcome.set_failure(ExecExitCode::ToolDenial, "blocked by policy");
+
+    let event = exec_completed_event(
+        &outcome,
+        Some("thread-1"),
+        Some("turn-1"),
+        Some(Path::new("/tmp/method-state.json")),
+    );
+
+    assert_eq!(event.exit_code, 21);
+    assert_eq!(event.classification, ExecExitClassification::ToolDenial);
+    assert_eq!(event.message, "blocked by policy");
+    assert_eq!(event.thread_id.as_deref(), Some("thread-1"));
+    assert_eq!(event.turn_id.as_deref(), Some("turn-1"));
+    assert_eq!(
+        event.method_state_path.as_deref(),
+        Some("/tmp/method-state.json")
+    );
+}
+
 #[tokio::test]
 async fn thread_start_params_include_review_policy_when_review_policy_is_manual_only() {
     let codex_home = tempdir().expect("create temp codex home");
@@ -419,7 +489,7 @@ async fn thread_start_params_include_review_policy_when_review_policy_is_manual_
         .await
         .expect("build config with manual-only review policy");
 
-    let params = thread_start_params_from_config(&config);
+    let params = thread_start_params_from_config(&config, None);
 
     assert_eq!(
         params.approvals_reviewer,
@@ -447,7 +517,7 @@ async fn thread_start_params_include_review_policy_when_auto_review_is_enabled()
         .await
         .expect("build config with guardian review policy");
 
-    let params = thread_start_params_from_config(&config);
+    let params = thread_start_params_from_config(&config, None);
 
     assert_eq!(
         params.approvals_reviewer,
@@ -470,8 +540,8 @@ async fn thread_lifecycle_params_include_legacy_sandbox_when_no_active_profile()
         .await
         .expect("build config with legacy sandbox override");
 
-    let start_params = thread_start_params_from_config(&config);
-    let resume_params = thread_resume_params_from_config(&config, "thread-id".to_string());
+    let start_params = thread_start_params_from_config(&config, None);
+    let resume_params = thread_resume_params_from_config(&config, "thread-id".to_string(), None);
 
     assert_eq!(config.permissions.active_permission_profile(), None);
     assert_eq!(

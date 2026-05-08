@@ -22,6 +22,8 @@ use owo_colors::Style;
 use crate::event_processor::CodexStatus;
 use crate::event_processor::EventProcessor;
 use crate::event_processor::handle_last_message;
+use crate::exec_events::ExecCompletedEvent;
+use crate::exec_events::ExecExitClassification;
 
 pub(crate) struct EventProcessorWithHumanOutput {
     bold: Style,
@@ -250,6 +252,17 @@ impl EventProcessor for EventProcessorWithHumanOutput {
                 );
                 CodexStatus::Running
             }
+            ServerNotification::AegisPreflightDecision(notification) => {
+                let decision = notification.decision;
+                eprintln!(
+                    "{} {} {}: {}",
+                    "aegis preflight:".style(self.bold),
+                    decision.tool_name.style(self.cyan),
+                    format!("{:?}", decision.verdict).style(self.dimmed),
+                    decision.reason
+                );
+                CodexStatus::Running
+            }
             ServerNotification::DeprecationNotice(notification) => {
                 eprintln!(
                     "{} {}",
@@ -373,6 +386,18 @@ impl EventProcessor for EventProcessorWithHumanOutput {
             "{} {message}",
             "warning:".style(self.yellow).style(self.bold)
         );
+        CodexStatus::Running
+    }
+
+    fn process_exec_completed(&mut self, event: ExecCompletedEvent) -> CodexStatus {
+        if event.classification != ExecExitClassification::Success {
+            eprintln!(
+                "{} {} ({})",
+                "exec failed:".style(self.red).style(self.bold),
+                event.message,
+                event.classification.as_str()
+            );
+        }
         CodexStatus::Running
     }
 
