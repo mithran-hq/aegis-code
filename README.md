@@ -30,6 +30,13 @@ Aegis-native control:
 - provider support for OpenAI-compatible APIs, native Anthropic, and local OSS
   providers where practical
 
+## Documentation
+
+Start with the [documentation home](docs/README.md) and the
+[first-run guide](docs/getting-started.md). The docs distinguish behavior that
+is implemented today from release and distribution work that is still tracked
+as roadmap.
+
 ## Boundary
 
 Aegis Code is not Aegis Secret, Aegis Engine, or Aegis Agent Runtime.
@@ -45,9 +52,8 @@ Those projects stay separate:
 
 ## Current Status
 
-This repository starts with a bootstrap commit and a GitHub issue train. The
-first implementation task imports the upstream Codex source and establishes the
-long-term fork/sync strategy.
+This repository contains the Codex-derived Aegis Code CLI and a GitHub issue
+train for issue-sized delivery.
 
 See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
