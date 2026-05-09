@@ -173,6 +173,7 @@ fn redact_command(command: &[String]) -> Vec<String> {
                 || lower.contains("authorization")
                 || lower.contains("bearer")
                 || lower.contains("api-key")
+                || lower.contains("api_key")
                 || lower.contains("apikey")
                 || lower == "-k"
                 || lower == "--key";
@@ -726,6 +727,7 @@ mod tests {
                 "--header",
                 "authorization: bearer secret-token",
                 "--token=abc",
+                "OPENAI_API_KEY=sk-redaction-test",
                 "--password",
                 "pw",
             ],
@@ -742,6 +744,7 @@ mod tests {
                 "--header".to_string(),
                 "<redacted>".to_string(),
                 "--token=<redacted>".to_string(),
+                "OPENAI_API_KEY=<redacted>".to_string(),
                 "--password".to_string(),
                 "<redacted>".to_string(),
             ])

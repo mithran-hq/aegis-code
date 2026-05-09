@@ -760,6 +760,7 @@ fn is_sensitive_evidence_token(value: &str) -> bool {
         || lower.contains("authorization")
         || lower.contains("bearer")
         || lower.contains("api-key")
+        || lower.contains("api_key")
         || lower.contains("apikey")
         || lower == "-k"
         || lower == "--key"
@@ -1432,11 +1433,13 @@ mod tests {
             "gh".to_string(),
             "api".to_string(),
             "--token=abc123".to_string(),
+            "OPENAI_API_KEY=sk-redaction-test".to_string(),
             "--password".to_string(),
             "pw".to_string(),
         ]);
-        let (output, output_status) =
-            redact_method_evidence_output("Authorization: bearer abc123 test passed");
+        let (output, output_status) = redact_method_evidence_output(
+            "Authorization: bearer abc123 api_key=sk-redaction-test build passed trace_id=40",
+        );
 
         assert_eq!(
             command,
@@ -1444,6 +1447,7 @@ mod tests {
                 "gh".to_string(),
                 "api".to_string(),
                 "--token=<redacted>".to_string(),
+                "OPENAI_API_KEY=<redacted>".to_string(),
                 "--password".to_string(),
                 "<redacted>".to_string(),
             ]
@@ -1451,7 +1455,7 @@ mod tests {
         assert_eq!(command_status, MethodEvidenceRedactionStatus::Redacted);
         assert_eq!(
             output,
-            "<redacted> <redacted> <redacted> test passed".to_string()
+            "<redacted> <redacted> <redacted> <redacted> build passed trace_id=40".to_string()
         );
         assert_eq!(
             merge_method_evidence_redaction_status(command_status, output_status),

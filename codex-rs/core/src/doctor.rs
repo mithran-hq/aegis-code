@@ -95,12 +95,75 @@ fn build_provider_diagnostic(config: &Config) -> ProviderDiagnostic {
         model_source: config.model_source.clone(),
         provider_policy: config.provider_policy.clone(),
         wire_api: config.model_provider.wire_api.to_string(),
-        base_url: config.model_provider.base_url.clone(),
+        base_url: config
+            .model_provider
+            .base_url
+            .as_deref()
+            .map(redact_provider_base_url),
         requires_openai_auth: config.model_provider.requires_openai_auth,
         supports_websockets: config.model_provider.supports_websockets,
         env_key: config.model_provider.env_key.clone(),
         env_key_present,
     }
+}
+
+fn redact_provider_base_url(raw: &str) -> String {
+    let redacted_userinfo = redact_url_userinfo(raw);
+    let Some((prefix, query_and_fragment)) = redacted_userinfo.split_once('?') else {
+        return redacted_userinfo;
+    };
+    let (query, fragment) = query_and_fragment
+        .split_once('#')
+        .map(|(query, fragment)| (query, Some(fragment)))
+        .unwrap_or((query_and_fragment, None));
+    let redacted_query = query
+        .split('&')
+        .map(|part| {
+            if let Some((name, _value)) = part.split_once('=')
+                && is_sensitive_diagnostic_key(name)
+            {
+                return format!("{name}=<redacted>");
+            }
+            if is_sensitive_diagnostic_key(part) {
+                return "<redacted>".to_string();
+            }
+            part.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+    match fragment {
+        Some(fragment) => format!("{prefix}?{redacted_query}#{fragment}"),
+        None => format!("{prefix}?{redacted_query}"),
+    }
+}
+
+fn redact_url_userinfo(raw: &str) -> String {
+    let Some(scheme_end) = raw.find("://") else {
+        return raw.to_string();
+    };
+    let authority_start = scheme_end + "://".len();
+    let authority_end = raw[authority_start..]
+        .find(['/', '?', '#'])
+        .map(|offset| authority_start + offset)
+        .unwrap_or(raw.len());
+    let authority = &raw[authority_start..authority_end];
+    let Some(at_offset) = authority.rfind('@') else {
+        return raw.to_string();
+    };
+    let at = authority_start + at_offset;
+    format!("{}<redacted>{}", &raw[..authority_start], &raw[at..])
+}
+
+fn is_sensitive_diagnostic_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("secret")
+        || lower.contains("authorization")
+        || lower.contains("bearer")
+        || lower.contains("api-key")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
 }
 
 fn default_model_name_for_provider(provider_id: &str) -> String {

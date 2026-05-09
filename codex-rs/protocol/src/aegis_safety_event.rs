@@ -227,6 +227,7 @@ fn is_sensitive_token(value: &str) -> bool {
         || lower.contains("authorization")
         || lower.contains("bearer")
         || lower.contains("api-key")
+        || lower.contains("api_key")
         || lower.contains("apikey")
         || lower == "-k"
         || lower == "--key"
@@ -288,17 +289,41 @@ mod tests {
             "--token".to_string(),
             "secret-value".to_string(),
             "password=hunter2".to_string(),
+            "OPENAI_API_KEY=sk-redaction-test".to_string(),
         ];
 
         let (redacted, redactions) = redact_safety_event_argv(&argv, "context.command.argv");
 
         assert_eq!(
             redacted,
-            vec!["gh", "api", "--token", "<redacted>", "password=<redacted>"]
+            vec![
+                "gh",
+                "api",
+                "--token",
+                "<redacted>",
+                "password=<redacted>",
+                "OPENAI_API_KEY=<redacted>"
+            ]
         );
-        assert_eq!(redactions.len(), 2);
+        assert_eq!(redactions.len(), 3);
         assert_eq!(redactions[0].field_path, "context.command.argv[3]");
         assert_eq!(redactions[1].field_path, "context.command.argv[4]");
+        assert_eq!(redactions[2].field_path, "context.command.argv[5]");
+    }
+
+    #[test]
+    fn redacts_sensitive_text_but_keeps_harmless_context() {
+        let (redacted, redactions) = redact_safety_event_text(
+            "Authorization: Bearer secret-value api_key=sk-redaction-test build passed trace_id=40",
+            "context.receipt.output_summary",
+        );
+
+        assert_eq!(
+            redacted,
+            "<redacted> <redacted> <redacted> <redacted> build passed trace_id=40"
+        );
+        assert_eq!(redactions.len(), 1);
+        assert_eq!(redactions[0].field_path, "context.receipt.output_summary");
     }
 
     #[test]

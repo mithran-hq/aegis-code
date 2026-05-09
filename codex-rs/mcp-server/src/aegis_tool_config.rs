@@ -1257,6 +1257,64 @@ mod tests {
     }
 
     #[test]
+    fn evidence_output_redacts_mcp_facing_summaries_without_losing_context() {
+        let evidence = MethodEvidence {
+            id: "evidence:test:redaction".to_string(),
+            summary: "secret-token-redaction build passed trace_id=trace-40".to_string(),
+            kind: codex_protocol::method_state::MethodEvidenceKind::Test,
+            requirement_ids: vec!["requirement:redaction".to_string()],
+            claim_ids: Vec::new(),
+            falsifier_ids: Vec::new(),
+            source: Some("test".to_string()),
+            captured_at_unix_seconds: 1,
+            receipt: Some(MethodEvidenceReceipt {
+                schema_version: 1,
+                command: vec![
+                    "curl".to_string(),
+                    "--api_key".to_string(),
+                    "sk-redaction-test".to_string(),
+                ],
+                cwd: "/tmp".to_string(),
+                captured_at_unix_seconds: 1,
+                git_state: codex_protocol::method_state::MethodEvidenceGitState {
+                    status: codex_protocol::method_state::MethodEvidenceGitStateStatus::Unavailable,
+                    repository: None,
+                    branch: None,
+                    commit: None,
+                    dirty: None,
+                    unavailable_reason: None,
+                },
+                exit_status: codex_protocol::method_state::MethodEvidenceExitStatus {
+                    exit_code: Some(0),
+                    timed_out: false,
+                },
+                output_summary:
+                    "Authorization: Bearer sk-redaction-test build passed trace_id=trace-40"
+                        .to_string(),
+                artifacts: Vec::new(),
+                session: codex_protocol::method_state::MethodEvidenceSessionMetadata {
+                    session_id: None,
+                    thread_id: None,
+                    provider: None,
+                    model: None,
+                    sandbox_posture: None,
+                },
+                redaction_status: MethodEvidenceRedactionStatus::NotNeeded,
+            }),
+        };
+
+        let output = evidence_output(&evidence);
+        let serialized = serde_json::to_string(&output).expect("serialize output");
+
+        assert!(!serialized.contains("secret-token-redaction"));
+        assert!(!serialized.contains("sk-redaction-test"));
+        assert!(serialized.contains("<redacted>"));
+        assert!(serialized.contains("build passed trace_id=trace-40"));
+        assert!(serialized.contains("evidence:test:redaction"));
+        assert!(serialized.contains("\"exitCode\":0"));
+    }
+
+    #[test]
     fn policy_schema_uses_camel_case_change_count() {
         let tool = create_aegis_tools()
             .into_iter()

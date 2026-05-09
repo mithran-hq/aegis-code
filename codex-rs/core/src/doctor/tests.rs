@@ -210,3 +210,52 @@ fn provider_report_serializes_env_key_presence_without_secret_value() {
     assert!(json.contains("\"env_key_present\":true"));
     assert!(!json.contains("sk-"));
 }
+
+#[test]
+fn provider_report_redacts_secret_base_url_material() {
+    let report = DoctorReport {
+        version: "0.1.0".to_string(),
+        codex_home: "/tmp/aegis-home".to_string(),
+        cwd: "/tmp/project".to_string(),
+        config_path: "/tmp/aegis-home/config.toml".to_string(),
+        provider: ProviderDiagnostic {
+            id: "openai-compatible".to_string(),
+            name: "OpenAI compatible".to_string(),
+            model: "gpt-5.4".to_string(),
+            provider_source: selection_source("global_config", Some("model_provider")),
+            model_source: selection_source("global_config", Some("model")),
+            provider_policy: Vec::new(),
+            wire_api: "responses".to_string(),
+            base_url: Some(super::redact_provider_base_url(
+                "https://user:secret-password@example.test/v1?api_key=sk-redaction-test&region=us#frag",
+            )),
+            requires_openai_auth: false,
+            supports_websockets: false,
+            env_key: Some("OPENAI_API_KEY".to_string()),
+            env_key_present: Some(true),
+        },
+        sandbox: sandbox_diagnostic(),
+        aegis_engine_alerts: crate::aegis_engine_alerts::AegisEngineAlertDoctorStatus {
+            enabled: false,
+            alerts_path: "/tmp/aegis-home/aegis-engine/alerts.jsonl".to_string(),
+            candidate_inputs_path: "/tmp/aegis-home/aegis-engine/candidate-pack-inputs.jsonl"
+                .to_string(),
+            malformed_count: 0,
+            stale_count: 0,
+            active_warning_count: 0,
+            active_blocking_count: 0,
+            last_read_error: None,
+        },
+        context_packs: Vec::new(),
+    };
+
+    let json = serde_json::to_string(&report).expect("serialize report");
+    let human = format_doctor_report_human(&report);
+
+    for rendered in [json.as_str(), human.as_str()] {
+        assert!(!rendered.contains("secret-password"));
+        assert!(!rendered.contains("sk-redaction-test"));
+        assert!(rendered.contains("<redacted>"));
+        assert!(rendered.contains("region=us"));
+    }
+}

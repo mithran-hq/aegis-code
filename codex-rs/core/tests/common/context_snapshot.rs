@@ -510,7 +510,7 @@ mod tests {
             "role": "user",
             "content": [{
                 "type": "input_text",
-                "text": "# AGENTS.md instructions for /tmp/example\n\n<INSTRUCTIONS>\nbody\n</INSTRUCTIONS>"
+                "text": "# AGENTS.md instructions for /tmp/example\n\n<INSTRUCTIONS>\nSECRET_TOKEN=sk-redaction-test\n</INSTRUCTIONS>"
             }]
         })];
 
@@ -520,6 +520,7 @@ mod tests {
         );
 
         assert_eq!(rendered, "00:message/user:<AGENTS_MD>");
+        assert!(!rendered.contains("sk-redaction-test"));
     }
 
     #[test]

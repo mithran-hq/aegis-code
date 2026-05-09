@@ -93,6 +93,8 @@ mod rmcp_client;
 mod rollout_list_find;
 mod safety_check_downgrade;
 mod search_tool;
+#[cfg(not(target_os = "windows"))]
+mod security_redaction;
 mod shell_command;
 mod shell_serialization;
 mod shell_snapshot;
