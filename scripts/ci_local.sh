@@ -178,6 +178,15 @@ run_rust_integration_smoke_tests() {
 
   RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" cargo test \
     --manifest-path codex-rs/Cargo.toml \
+    -p codex-core \
+    --test all \
+    --locked \
+    suite::golden_path \
+    -- \
+    --test-threads=1
+
+  RUST_MIN_STACK="${RUST_MIN_STACK:-8388608}" cargo test \
+    --manifest-path codex-rs/Cargo.toml \
     -p codex-app-server \
     --test all \
     --locked \
