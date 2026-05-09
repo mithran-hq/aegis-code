@@ -14,6 +14,10 @@ example, to stage the CLI, responses proxy, and SDK packages for version `0.6.0`
 This downloads the native artifacts once, hydrates `vendor/` for each package, and writes
 tarballs to `dist/npm/`.
 
+Native artifact staging is release/distribution work. Ordinary push and pull
+request CI must not reuse a stale historical workflow run; pass an explicit
+`--workflow-url` from the release run that produced the native artifacts.
+
 When `--package aegis` is provided, the staging helper builds the lightweight
 `@mithran/aegis` meta package plus all platform-native `@mithran/aegis` variants
 that are later published under platform-specific dist-tags.

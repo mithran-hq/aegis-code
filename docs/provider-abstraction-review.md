@@ -29,7 +29,7 @@ OpenAI is the primary first-party provider. It uses the Responses API, requires
 OpenAI or ChatGPT auth, sends the package version header, supports OpenAI
 organization and project env headers, and enables Responses-over-WebSocket.
 Configured custom providers are merged with the built-ins as additional
-OpenAI-compatible providers. Built-in providers are not generally overrideable;
+OpenAI-compatible providers. Built-in providers are not generally overridable;
 Amazon Bedrock only allows `aws.profile` and `aws.region` to be changed.
 
 Amazon Bedrock is not native Bedrock model invocation in this tree. The runtime

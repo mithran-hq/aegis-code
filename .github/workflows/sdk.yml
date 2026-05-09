@@ -1,9 +1,11 @@
 name: sdk
 
 on:
-  push:
-    branches: [main]
-  pull_request: {}
+  # The inherited SDK job still depends on OpenAI Codex package and binary
+  # names, plus the private `codex-runners` runner group. Keep it available for
+  # manual investigation until the Aegis SDK/distribution work makes it
+  # actionable again.
+  workflow_dispatch: {}
 
 jobs:
   sdks:

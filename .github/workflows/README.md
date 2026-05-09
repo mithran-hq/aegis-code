@@ -32,6 +32,11 @@ The workflows in this directory are split so that pull requests get fast, review
   - release-profile Cargo builds
   - cross-platform `argument-comment-lint`
   - Linux remote-env tests
+- `ci.yml` is limited to cheap static and package-format checks. It does not
+  stage npm release artifacts; native npm staging belongs to release and
+  distribution workflow once release artifacts are available.
+- `sdk.yml` is manual-only until the inherited TypeScript SDK workflow is ported
+  to Aegis package names and hosted/actionable runner infrastructure.
 
 ## Rule Of Thumb
 
