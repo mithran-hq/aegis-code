@@ -1,9 +1,10 @@
 ---
-source: tui/src/app.rs
+source: tui/src/app/tests.rs
+assertion_line: 3820
 expression: rendered
 ---
 ╭─────────────────────────────────────────────╮
-│ >_ Aegis Code (v<VERSION>)                │
+│ >_ Aegis Code (v<VERSION>)                  │
 │                                             │
 │ model:     gpt-test high   /model to change │
 │ directory: /tmp/project                     │

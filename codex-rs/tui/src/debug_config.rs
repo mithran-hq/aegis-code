@@ -816,7 +816,7 @@ mod tests {
 
         let rendered = render_to_text(&render_debug_config_lines(&stack));
         assert!(rendered.contains(
-            "experimental_network: unix_sockets={/tmp/blocked.sock=none, /tmp/aegis.sock=allow} (source: cloud requirements)"
+            "experimental_network: unix_sockets={/tmp/aegis.sock=allow, /tmp/blocked.sock=none} (source: cloud requirements)"
         ));
     }
 

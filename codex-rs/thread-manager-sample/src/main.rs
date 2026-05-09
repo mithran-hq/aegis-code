@@ -9,6 +9,10 @@ use anyhow::Context;
 use anyhow::bail;
 use clap::Parser;
 use codex_core_api::AbsolutePathBuf;
+use codex_core_api::AegisAgentRuntimeConfig;
+use codex_core_api::AegisEngineConfig;
+use codex_core_api::AegisEngineFailureMode;
+use codex_core_api::AegisEngineMirrorConfig;
 use codex_core_api::AltScreenMode;
 use codex_core_api::ApprovalsReviewer;
 use codex_core_api::Arg0DispatchPaths;
@@ -18,7 +22,9 @@ use codex_core_api::AuthManager;
 use codex_core_api::CodexThread;
 use codex_core_api::Config;
 use codex_core_api::ConfigLayerStack;
+use codex_core_api::ConfigSelectionSource;
 use codex_core_api::Constrained;
+use codex_core_api::ContextPackSet;
 use codex_core_api::EnvironmentManager;
 use codex_core_api::EnvironmentManagerArgs;
 use codex_core_api::EventMsg;
@@ -160,12 +166,21 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         config_layer_stack: ConfigLayerStack::default(),
         startup_warnings: Vec::new(),
         model,
+        model_source: ConfigSelectionSource {
+            source: "sample".to_string(),
+            detail: Some("thread-manager-sample model argument".to_string()),
+        },
         service_tier: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
         model_provider_id,
+        model_provider_source: ConfigSelectionSource {
+            source: "sample".to_string(),
+            detail: Some("thread-manager-sample OpenAI default".to_string()),
+        },
         model_provider,
+        provider_policy: Vec::new(),
         personality: None,
         permissions: Permissions {
             approval_policy: Constrained::allow_any(AskForApproval::Never),
@@ -182,6 +197,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         hide_agent_reasoning: false,
         show_raw_agent_reasoning: false,
         user_instructions: None,
+        context_packs: ContextPackSet::default(),
         base_instructions: None,
         developer_instructions: None,
         guardian_policy_config: None,
@@ -228,7 +244,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         config_lock_allow_codex_version_mismatch: false,
         config_lock_save_fields_resolved_from_model_catalog: true,
         config_lock_toml: None,
-        codex_home,
+        codex_home: codex_home.clone(),
         history: History::default(),
         ephemeral: true,
         file_opener: UriBasedFileOpener::VsCode,
@@ -262,6 +278,26 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         background_terminal_max_timeout: 300_000,
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),
+        aegis_agent_runtime: AegisAgentRuntimeConfig::default(),
+        aegis_engine: AegisEngineConfig {
+            enabled: false,
+            jsonl_path: codex_home
+                .join("aegis-engine")
+                .join("events.jsonl")
+                .to_path_buf(),
+            alerts_path: codex_home
+                .join("aegis-engine")
+                .join("alerts.jsonl")
+                .to_path_buf(),
+            candidate_inputs_path: codex_home
+                .join("aegis-engine")
+                .join("candidate-pack-inputs.jsonl")
+                .to_path_buf(),
+            alert_stale_after_seconds: 86_400,
+            buffer_capacity: 256,
+            failure_mode: AegisEngineFailureMode::BestEffort,
+            mirror: AegisEngineMirrorConfig::None,
+        },
         features: Default::default(),
         suppress_unstable_features_warning: false,
         active_profile: None,

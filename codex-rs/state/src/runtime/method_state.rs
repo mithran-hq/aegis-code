@@ -195,6 +195,7 @@ mod tests {
                 evidence_requirement_ids: vec!["requirement:round-trip".to_string()],
                 rationale: None,
             }],
+            engine_alerts: Vec::new(),
             review_findings: vec![MethodReviewFinding {
                 id: "finding:none".to_string(),
                 summary: "No blocking findings".to_string(),

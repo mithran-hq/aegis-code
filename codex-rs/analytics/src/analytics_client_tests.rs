@@ -176,6 +176,7 @@ fn sample_thread_start_response(
         sandbox: AppServerSandboxPolicy::DangerFullAccess,
         permission_profile: None,
         active_permission_profile: None,
+        method_status: None,
         reasoning_effort: None,
     })
 }
@@ -232,6 +233,7 @@ fn sample_thread_resume_response_with_source(
         sandbox: AppServerSandboxPolicy::DangerFullAccess,
         permission_profile: None,
         active_permission_profile: None,
+        method_status: None,
         reasoning_effort: None,
     })
 }
@@ -294,6 +296,7 @@ fn sample_turn_token_usage_fact(thread_id: &str, turn_id: &str) -> TurnTokenUsag
             total_tokens: 321,
             input_tokens: 123,
             cached_input_tokens: 45,
+            cache_creation_input_tokens: 0,
             output_tokens: 140,
             reasoning_output_tokens: 13,
         },

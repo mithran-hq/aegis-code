@@ -29,7 +29,12 @@ The v1 envelope has these fields:
   "summary": "Aegis preflight RequireConfirmation for exec_command",
   "category": "method_gate",
   "severity_hint": "medium",
-  "tags": ["category:method_gate", "tool:exec_command", "verdict:require_confirmation", "risk:repository_mutation"],
+  "tags": [
+    "category:method_gate",
+    "tool:exec_command",
+    "verdict:require_confirmation",
+    "risk:repository_mutation"
+  ],
   "context": {
     "call_id": "call-1",
     "turn_id": "turn-1",
@@ -74,7 +79,12 @@ The v1 envelope has these fields:
   "summary": "Aegis preflight Block for exec_command",
   "category": "tool_denial",
   "severity_hint": "high",
-  "tags": ["category:tool_denial", "tool:exec_command", "verdict:block", "risk:credential_access"],
+  "tags": [
+    "category:tool_denial",
+    "tool:exec_command",
+    "verdict:block",
+    "risk:credential_access"
+  ],
   "context": {
     "call_id": "call-3",
     "turn_id": "turn-1",
@@ -103,7 +113,11 @@ The v1 envelope has these fields:
   "summary": "test command completed with exit code 0: cargo test -p codex-protocol aegis_safety_event",
   "category": "evidence",
   "severity_hint": "info",
-  "tags": ["category:evidence", "evidence:test", "requirement:evidence:protocol-tests"],
+  "tags": [
+    "category:evidence",
+    "evidence:test",
+    "requirement:evidence:protocol-tests"
+  ],
   "context": {
     "evidence_id": "evidence:test:call-4",
     "kind": "test",
@@ -113,7 +127,13 @@ The v1 envelope has these fields:
     "captured_at_unix_seconds": 1778246400,
     "evidence_source": "harness exec_command",
     "receipt": {
-      "command": ["cargo", "test", "-p", "codex-protocol", "aegis_safety_event"],
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-protocol",
+        "aegis_safety_event"
+      ],
       "cwd": "/repo",
       "exit_status": { "exit_code": 0, "timed_out": false },
       "output_summary": "test result: ok",
@@ -341,12 +361,14 @@ mutate active prompt layers.
     "event_id": "aegis-code:tool_call:call-1",
     "category": "tool_call",
     "turn_id": "turn-1",
-    "call_id": "call-1"
+    "call_id": "call-1",
   },
   "candidate_guidance": {
     "guidance": "Require issue-scope evidence before similar repository mutations.",
-    "falsifiers": ["The command is read-only or explicitly requested by the task issue."]
-  }
+    "falsifiers": [
+      "The command is read-only or explicitly requested by the task issue.",
+    ],
+  },
 }
 ```
 

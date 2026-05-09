@@ -77,7 +77,10 @@
         "issue_mismatch",
         "missing_persisted_schema_version",
         "missing_current_schema_version",
-        "schema_version_mismatch"
+        "schema_version_mismatch",
+        "missing_persisted_sandbox_posture",
+        "missing_current_sandbox_posture",
+        "sandbox_posture_changed"
       ],
       "type": "string"
     },
@@ -88,6 +91,80 @@
         "invalid"
       ],
       "type": "string"
+    },
+    "MethodSandboxPolicyStatus": {
+      "enum": [
+        "unrestricted",
+        "allowed",
+        "blocked",
+        "missing"
+      ],
+      "type": "string"
+    },
+    "MethodSandboxPolicySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_modes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "diagnostic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/MethodSandboxPolicyStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "MethodSandboxPosture": {
+      "additionalProperties": false,
+      "properties": {
+        "enforcement": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "permission_profile": {
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MethodSandboxPolicySummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "enforcement",
+        "mode",
+        "network",
+        "permission_profile"
+      ],
+      "type": "object"
     },
     "MethodStatusKind": {
       "enum": [
@@ -193,6 +270,16 @@
           "format": "uint64",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "sandbox_posture": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MethodSandboxPosture"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "updated_at_unix_seconds": {
           "format": "int64",

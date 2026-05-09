@@ -1262,6 +1262,7 @@ mod tests {
             network,
             permissions,
             guardian_policy_config,
+            aegis_engine,
         } = toml;
         ConfigRequirementsWithSources {
             allowed_approval_policies: allowed_approval_policies
@@ -1285,6 +1286,7 @@ mod tests {
             permissions: permissions.map(|value| Sourced::new(value, RequirementSource::Unknown)),
             guardian_policy_config: guardian_policy_config
                 .map(|value| Sourced::new(value, RequirementSource::Unknown)),
+            aegis_engine: aegis_engine.map(|value| Sourced::new(value, RequirementSource::Unknown)),
         }
     }
 
@@ -1329,6 +1331,7 @@ mod tests {
             network: None,
             permissions: None,
             guardian_policy_config: Some(guardian_policy_config.clone()),
+            aegis_engine: None,
         };
 
         target.merge_unset_fields(source.clone(), other);
@@ -1362,6 +1365,7 @@ mod tests {
                 network: None,
                 permissions: None,
                 guardian_policy_config: Some(Sourced::new(guardian_policy_config, source)),
+                aegis_engine: None,
             }
         );
     }
@@ -1401,6 +1405,7 @@ mod tests {
                 network: None,
                 permissions: None,
                 guardian_policy_config: None,
+                aegis_engine: None,
             }
         );
         Ok(())
@@ -1448,6 +1453,7 @@ mod tests {
                 network: None,
                 permissions: None,
                 guardian_policy_config: None,
+                aegis_engine: None,
             }
         );
         Ok(())

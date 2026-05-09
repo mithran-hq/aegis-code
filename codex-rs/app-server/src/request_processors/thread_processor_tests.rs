@@ -636,6 +636,7 @@ mod thread_processor_behavior_tests {
             sandbox: None,
             permissions: None,
             config: None,
+            method_state: None,
             base_instructions: None,
             developer_instructions: None,
             personality: None,

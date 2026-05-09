@@ -4,6 +4,13 @@ The workflows in this directory are split so that pull requests get fast, review
 
 ## Pull Requests
 
+- `local-ci.yml` runs `./scripts/ci_local.sh` on Linux. This is the same
+  default local pre-push contract developers and agents run before landing
+  issue-sized work. The script uses `RUST_TEST_THREADS=4` by default for
+  parallel-safe crates and runs `codex-core` unit tests serially for
+  deterministic goal/session coverage. It runs workspace unit/bin/example tests
+  and a focused integration smoke set rather than the multi-hour exhaustive
+  Cargo integration matrix.
 - `bazel.yml` is the main pre-merge verification path for Rust code.
   It runs Bazel `test` and Bazel `clippy` on the supported Bazel targets,
   including the generated Rust test binaries needed to lint inline `#[cfg(test)]`
@@ -28,6 +35,9 @@ The workflows in this directory are split so that pull requests get fast, review
 
 ## Rule Of Thumb
 
+- Keep `./scripts/ci_local.sh` aligned with required pre-push checks. Add broad,
+  slow, or optional-tool checks to `./scripts/ci_local.sh --full` unless they
+  are cheap enough to run on every issue-sized task.
 - If a build/test/clippy check can be expressed in Bazel, prefer putting the PR-time version in `bazel.yml`.
 - Keep `rust-ci.yml` fast enough that it usually does not dominate PR latency.
 - Reserve `rust-ci-full.yml` for heavyweight Cargo-native coverage that Bazel does not replace yet.

@@ -1,5 +1,6 @@
 ---
 source: tui/src/markdown_render_tests.rs
+assertion_line: 847
 expression: rendered
 ---
-See codex-rs/tui/src/markdown_render.rs:74.
+See aegis-rs/tui/src/markdown_render.rs:74.

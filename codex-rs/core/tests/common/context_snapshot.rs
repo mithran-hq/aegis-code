@@ -412,6 +412,9 @@ fn canonicalize_snapshot_text(text: &str) -> String {
             "<ENVIRONMENT_CONTEXT>".to_string()
         };
     }
+    if text.starts_with("<current_task_facts>") {
+        return "<CURRENT_TASK_FACTS>".to_string();
+    }
     if text.starts_with("You are performing a CONTEXT CHECKPOINT COMPACTION.") {
         return "<SUMMARIZATION_PROMPT>".to_string();
     }
@@ -620,6 +623,25 @@ mod tests {
             rendered,
             "00:message/user:<ENVIRONMENT_CONTEXT:cwd=<CWD>:subagents=2>"
         );
+    }
+
+    #[test]
+    fn redacted_text_mode_normalizes_current_task_facts() {
+        let items = vec![json!({
+            "type": "message",
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "<current_task_facts>\nCurrent task facts:\n- Thread ID: 11111111-1111-4111-8111-111111111111\n- Working directory: /tmp/example\n</current_task_facts>"
+            }]
+        })];
+
+        let rendered = format_response_items_snapshot(
+            &items,
+            &ContextSnapshotOptions::default().render_mode(ContextSnapshotRenderMode::RedactedText),
+        );
+
+        assert_eq!(rendered, "00:message/user:<CURRENT_TASK_FACTS>");
     }
 
     #[test]

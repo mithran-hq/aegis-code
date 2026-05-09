@@ -207,6 +207,7 @@ async fn status_card_renders_redacted_method_and_secret_summary() {
     let model_slug = crate::legacy_core::test_support::get_model_offline(config.model.as_deref());
     let method_status = MethodStatusSummary {
         kind: MethodStatusKind::Loaded,
+        sandbox_posture: None,
         linked_issue: Some(MethodLinkedIssue {
             provider: MethodIssueProvider::GitHub,
             repository: "mithran-hq/aegis-code".to_string(),

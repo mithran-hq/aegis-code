@@ -283,6 +283,9 @@ fn proto_string_map(values: HashMap<String, String>) -> proto::StringMap {
 fn proto_wire_api(wire_api: WireApi) -> proto::WireApi {
     match wire_api {
         WireApi::Responses => proto::WireApi::Responses,
+        WireApi::AnthropicMessages => {
+            panic!("remote thread config proto does not support Anthropic Messages yet")
+        }
     }
 }
 

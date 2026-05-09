@@ -5,14 +5,14 @@ plan, and perform future upstream sync work without losing Aegis-owned changes.
 
 ## Current Upstream Base
 
-| Field | Value |
-| --- | --- |
-| Upstream repository | `https://github.com/openai/codex` |
-| Upstream default branch | `main` |
-| Local repository | `https://github.com/mithran-hq/aegis-code` |
-| Local default branch | `main` |
+| Field                    | Value                                      |
+| ------------------------ | ------------------------------------------ |
+| Upstream repository      | `https://github.com/openai/codex`          |
+| Upstream default branch  | `main`                                     |
+| Local repository         | `https://github.com/mithran-hq/aegis-code` |
+| Local default branch     | `main`                                     |
 | Imported upstream commit | `f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781` |
-| Import record | `docs/UPSTREAM_IMPORT.md` |
+| Import record            | `docs/UPSTREAM_IMPORT.md`                  |
 
 The imported snapshot is not graph-connected to upstream history. Use the pinned
 upstream commit above as the comparison base unless a future issue explicitly

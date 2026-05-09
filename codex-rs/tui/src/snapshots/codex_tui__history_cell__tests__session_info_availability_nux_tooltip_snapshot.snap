@@ -1,9 +1,10 @@
 ---
 source: tui/src/history_cell.rs
+assertion_line: 3964
 expression: rendered
 ---
 ╭─────────────────────────────────────╮
-│ >_ Aegis Code (v0.0.0)            │
+│ >_ Aegis Code (v0.0.0)              │
 │                                     │
 │ model:     gpt-5   /model to change │
 │ directory: /tmp/project             │

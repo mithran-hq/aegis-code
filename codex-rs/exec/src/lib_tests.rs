@@ -640,5 +640,6 @@ fn sample_thread_start_response() -> ThreadStartResponse {
         permission_profile: None,
         active_permission_profile: None,
         reasoning_effort: None,
+        method_status: None,
     }
 }

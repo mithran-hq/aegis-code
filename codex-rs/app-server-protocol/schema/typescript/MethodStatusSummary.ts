@@ -5,7 +5,8 @@ import type { MethodContextPackStatusSummary } from "./MethodContextPackStatusSu
 import type { MethodLinkedIssue } from "./MethodLinkedIssue";
 import type { MethodResumeValidityReason } from "./MethodResumeValidityReason";
 import type { MethodResumeValidityStatus } from "./MethodResumeValidityStatus";
+import type { MethodSandboxPosture } from "./MethodSandboxPosture";
 import type { MethodStatusKind } from "./MethodStatusKind";
 import type { MethodWorkStatus } from "./MethodWorkStatus";
 
-export type MethodStatusSummary = { kind: MethodStatusKind, linked_issue?: MethodLinkedIssue, work_status?: MethodWorkStatus, resume_validity?: MethodResumeValidityStatus, resume_reasons: Array<MethodResumeValidityReason>, required_evidence_total: bigint, required_evidence_satisfied: bigint, evidence_total: bigint, gates_pending: bigint, gates_failed: bigint, gates_blocked: bigint, review_open_blocking: bigint, review_open_high: bigint, review_open_medium: bigint, engine_alerts_warned: bigint, engine_alerts_blocked: bigint, context_packs: MethodContextPackStatusSummary, diagnostic?: string, updated_at_unix_seconds?: bigint, };
+export type MethodStatusSummary = { kind: MethodStatusKind, sandbox_posture?: MethodSandboxPosture, linked_issue?: MethodLinkedIssue, work_status?: MethodWorkStatus, resume_validity?: MethodResumeValidityStatus, resume_reasons: Array<MethodResumeValidityReason>, required_evidence_total: bigint, required_evidence_satisfied: bigint, evidence_total: bigint, gates_pending: bigint, gates_failed: bigint, gates_blocked: bigint, review_open_blocking: bigint, review_open_high: bigint, review_open_medium: bigint, engine_alerts_warned: bigint, engine_alerts_blocked: bigint, context_packs: MethodContextPackStatusSummary, diagnostic?: string, updated_at_unix_seconds?: bigint, };

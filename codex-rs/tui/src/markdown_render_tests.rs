@@ -680,11 +680,11 @@ fn load_location_suffix_regexes() {
 #[test]
 fn file_link_hides_destination() {
     let text = render_markdown_text_for_cwd(
-        "[codex-rs/tui/src/markdown_render.rs](/Users/example/code/aegis/aegis-rs/tui/src/markdown_render.rs)",
+        "[aegis-rs/tui/src/markdown_render.rs](/Users/example/code/aegis/aegis-rs/tui/src/markdown_render.rs)",
         Path::new("/Users/example/code/aegis"),
     );
     let expected =
-        Text::from(Line::from_iter(["codex-rs/tui/src/markdown_render.rs".cyan()]));
+        Text::from(Line::from_iter(["aegis-rs/tui/src/markdown_render.rs".cyan()]));
     assert_eq!(text, expected);
 }
 
@@ -707,7 +707,7 @@ fn file_link_appends_line_number_when_label_lacks_it() {
         Path::new("/Users/example/code/aegis"),
     );
     let expected = Text::from(Line::from_iter([
-        "codex-rs/tui/src/markdown_render.rs:74".cyan(),
+        "aegis-rs/tui/src/markdown_render.rs:74".cyan(),
     ]));
     assert_eq!(text, expected);
 }
@@ -730,7 +730,7 @@ fn file_link_appends_hash_anchor_when_label_lacks_it() {
     );
     let expected =
         Text::from(Line::from_iter([
-            "codex-rs/tui/src/markdown_render.rs:74:3".cyan(),
+            "aegis-rs/tui/src/markdown_render.rs:74:3".cyan(),
         ]));
     assert_eq!(text, expected);
 }
@@ -743,7 +743,7 @@ fn file_link_uses_target_path_for_hash_anchor() {
     );
     let expected =
         Text::from(Line::from_iter([
-            "codex-rs/tui/src/markdown_render.rs:74:3".cyan(),
+            "aegis-rs/tui/src/markdown_render.rs:74:3".cyan(),
         ]));
     assert_eq!(text, expected);
 }
@@ -756,7 +756,7 @@ fn file_link_appends_range_when_label_lacks_it() {
     );
     let expected =
         Text::from(Line::from_iter([
-            "codex-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
+            "aegis-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
         ]));
     assert_eq!(text, expected);
 }
@@ -769,7 +769,7 @@ fn file_link_uses_target_path_for_range() {
     );
     let expected =
         Text::from(Line::from_iter([
-            "codex-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
+            "aegis-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
         ]));
     assert_eq!(text, expected);
 }
@@ -782,7 +782,7 @@ fn file_link_appends_hash_range_when_label_lacks_it() {
     );
     let expected =
         Text::from(Line::from_iter([
-            "codex-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
+            "aegis-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
         ]));
     assert_eq!(text, expected);
 }
@@ -796,7 +796,7 @@ fn multiline_file_link_label_after_styled_prefix_does_not_panic() {
     let expected = Text::from(Line::from_iter([
         "bold".bold(),
         " plain ".into(),
-        "codex-rs/tui/src/markdown_render.rs:74:3".cyan(),
+        "aegis-rs/tui/src/markdown_render.rs:74:3".cyan(),
     ]));
     assert_eq!(text, expected);
 }
@@ -809,7 +809,7 @@ fn file_link_uses_target_path_for_hash_range() {
     );
     let expected =
         Text::from(Line::from_iter([
-            "codex-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
+            "aegis-rs/tui/src/markdown_render.rs:74:3-76:9".cyan(),
         ]));
     assert_eq!(text, expected);
 }
@@ -867,7 +867,7 @@ fn unordered_list_local_file_link_stays_inline_with_following_text() {
     assert_eq!(
         rendered,
         vec![
-            "- codex-rs/README.md:93: core is the agent/business logic, tui is the",
+            "- aegis-rs/README.md:93: core is the agent/business logic, tui is the",
             "  terminal UI, exec is the headless automation surface, and cli is the",
             "  top-level multitool binary.",
         ]
@@ -893,7 +893,7 @@ fn unordered_list_local_file_link_soft_break_before_colon_stays_inline() {
         .collect::<Vec<_>>();
     assert_eq!(
         rendered,
-        vec!["- codex-rs/README.md:93: core is the agent/business logic.",]
+        vec!["- aegis-rs/README.md:93: core is the agent/business logic.",]
     );
 }
 
@@ -917,8 +917,8 @@ fn consecutive_unordered_list_local_file_links_do_not_detach_paths() {
     assert_eq!(
         rendered,
         vec![
-            "- codex-rs/README.md:93: cli is the top-level multitool binary.",
-            "- codex-rs/core/README.md:1: codex-core owns the real runtime behavior.",
+            "- aegis-rs/README.md:93: cli is the top-level multitool binary.",
+            "- aegis-rs/core/README.md:1: codex-core owns the real runtime behavior.",
         ]
     );
 }

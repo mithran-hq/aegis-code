@@ -30,7 +30,10 @@ thin while the durable Aegis runtime event schema is defined separately.
 The adapter also accepts an interim `aegis/runtime/checkpoint` notification:
 
 ```json
-{"method":"aegis/runtime/checkpoint","params":{"threadId":"...","checkpointId":"...","label":"..."}}
+{
+  "method": "aegis/runtime/checkpoint",
+  "params": { "threadId": "...", "checkpointId": "...", "label": "..." }
+}
 ```
 
 For now, checkpoints are surfaced as user-visible warning notifications. The

@@ -142,12 +142,12 @@ that model.
 
 ## Compatibility Risks And Tasks
 
-| Risk | Task |
-| --- | --- |
-| Adding Anthropic as a custom OpenAI-compatible provider would leave message, tool, streaming, cache, usage, and error semantics lossy. | #28 Implement native Anthropic provider support. |
-| Reworking request construction could regress inherited OpenAI Responses-compatible behavior, including config, env vars, streaming, tools, errors, and prompt formatting. | #29 Preserve OpenAI-compatible provider support. |
-| Local providers may not support every Responses feature used by Aegis prompt layers, tools, diagnostics, or streaming paths. | #30 Preserve local OSS provider support. |
-| Context packs and future policy could make provider selection opaque or override explicit CLI choices. | #31 Add provider routing policy. |
+| Risk                                                                                                                                                                             | Task                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Adding Anthropic as a custom OpenAI-compatible provider would leave message, tool, streaming, cache, usage, and error semantics lossy.                                           | #28 Implement native Anthropic provider support.                         |
+| Reworking request construction could regress inherited OpenAI Responses-compatible behavior, including config, env vars, streaming, tools, errors, and prompt formatting.        | #29 Preserve OpenAI-compatible provider support.                         |
+| Local providers may not support every Responses feature used by Aegis prompt layers, tools, diagnostics, or streaming paths.                                                     | #30 Preserve local OSS provider support.                                 |
+| Context packs and future policy could make provider selection opaque or override explicit CLI choices.                                                                           | #31 Add provider routing policy.                                         |
 | Provider-native capabilities could expose unsupported tools or hide unsupported features unless diagnostics name the chosen provider, model, endpoint, and capability decisions. | #28, #29, #30, and #31 share this risk across their acceptance criteria. |
 
 No additional implementation issue is required from this review. The known

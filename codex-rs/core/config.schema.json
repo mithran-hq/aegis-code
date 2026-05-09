@@ -6,6 +6,98 @@
       "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
       "type": "string"
     },
+    "AegisEngineFailureModeToml": {
+      "enum": [
+        "best-effort",
+        "require"
+      ],
+      "type": "string"
+    },
+    "AegisEngineMirrorToml": {
+      "enum": [
+        "none",
+        "daemon-stdin",
+        "pipe"
+      ],
+      "type": "string"
+    },
+    "AegisEngineToml": {
+      "additionalProperties": false,
+      "description": "Aegis Engine event sink settings.",
+      "properties": {
+        "alert_stale_after_seconds": {
+          "description": "Alert age threshold in seconds. Defaults to 86400.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "alerts_path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Aegis Engine alert JSONL path. Defaults to `$AEGIS_HOME/aegis-engine/alerts.jsonl`."
+        },
+        "buffer_capacity": {
+          "description": "Bounded async queue capacity. Defaults to 256.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "candidate_inputs_path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Candidate-pack input JSONL path. Defaults to `$AEGIS_HOME/aegis-engine/candidate-pack-inputs.jsonl`."
+        },
+        "daemon_command": {
+          "description": "Command used when `mirror = \"daemon-stdin\"`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "Enables local event emission. Defaults to true.",
+          "type": "boolean"
+        },
+        "failure_mode": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AegisEngineFailureModeToml"
+            }
+          ],
+          "description": "Failure behavior for protected workflows. Defaults to best-effort."
+        },
+        "jsonl_path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "JSONL audit log path. Defaults to `$AEGIS_HOME/aegis-engine/events.jsonl`."
+        },
+        "mirror": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AegisEngineMirrorToml"
+            }
+          ],
+          "description": "Optional mirror destination. The local JSONL sink remains enabled."
+        },
+        "pipe_path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Path used when `mirror = \"pipe\"`."
+        }
+      },
+      "type": "object"
+    },
     "AgentRoleToml": {
       "additionalProperties": false,
       "properties": {
@@ -358,6 +450,9 @@
           "default": null,
           "description": "Optional feature toggles scoped to this profile.",
           "properties": {
+            "aegis_agent_runtime": {
+              "type": "boolean"
+            },
             "apply_patch_freeform": {
               "type": "boolean"
             },
@@ -3758,12 +3853,28 @@
             "responses"
           ],
           "type": "string"
+        },
+        {
+          "description": "Anthropic's native Messages API exposed at `/v1/messages`.",
+          "enum": [
+            "anthropicmessages"
+          ],
+          "type": "string"
         }
       ]
     }
   },
   "description": "Base config deserialized from ~/.aegis/config.toml.",
   "properties": {
+    "aegis_engine": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/AegisEngineToml"
+        }
+      ],
+      "default": null,
+      "description": "Aegis Engine safety event emission settings."
+    },
     "agents": {
       "allOf": [
         {
@@ -3938,6 +4049,9 @@
       "default": null,
       "description": "Centralized feature flags (new). Prefer this over individual toggles.",
       "properties": {
+        "aegis_agent_runtime": {
+          "type": "boolean"
+        },
         "apply_patch_freeform": {
           "type": "boolean"
         },

@@ -48,10 +48,10 @@ if the provider came from config or a context pack.
 
 The built-in local providers have these defaults:
 
-| Provider | Base URL | Default model |
-| --- | --- | --- |
-| `ollama` | `http://localhost:11434/v1` | `gpt-oss:20b` |
-| `lmstudio` | `http://localhost:1234/v1` | `openai/gpt-oss-20b` |
+| Provider   | Base URL                    | Default model        |
+| ---------- | --------------------------- | -------------------- |
+| `ollama`   | `http://localhost:11434/v1` | `gpt-oss:20b`        |
+| `lmstudio` | `http://localhost:1234/v1`  | `openai/gpt-oss-20b` |
 
 Override the local endpoint with Aegis environment variables:
 

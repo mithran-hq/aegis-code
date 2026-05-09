@@ -5,14 +5,14 @@ Code.
 
 ## Imported Snapshot
 
-| Field | Value |
-| --- | --- |
-| Upstream repository | https://github.com/openai/codex |
-| Upstream default branch | `main` |
-| Imported commit | `f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781` |
-| Commit URL | https://github.com/openai/codex/commit/f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781 |
-| Commit date | 2026-05-07T11:33:47+02:00 |
-| Commit subject | Make turn diff tracking operation backed (#21180) |
+| Field                   | Value                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| Upstream repository     | https://github.com/openai/codex                                                 |
+| Upstream default branch | `main`                                                                          |
+| Imported commit         | `f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781`                                      |
+| Commit URL              | https://github.com/openai/codex/commit/f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781 |
+| Commit date             | 2026-05-07T11:33:47+02:00                                                       |
+| Commit subject          | Make turn diff tracking operation backed (#21180)                               |
 
 The local repository has an `upstream` remote pointing at
 `https://github.com/openai/codex.git`.

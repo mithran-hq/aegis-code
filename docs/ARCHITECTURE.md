@@ -9,12 +9,12 @@ runtime events.
 
 ## Product Boundary
 
-| Layer | Responsibility |
-| --- | --- |
-| Aegis Code | Coding loop, method gates, prompts, tools, evidence, review, session state |
-| Aegis Secret | Authority decisions for sensitive local commands and secrets |
-| Aegis Engine | Asynchronous event triage, drift intelligence, candidate context packs |
-| Aegis Agent Runtime | Optional execution, sandbox, session, and tool substrate |
+| Layer               | Responsibility                                                             |
+| ------------------- | -------------------------------------------------------------------------- |
+| Aegis Code          | Coding loop, method gates, prompts, tools, evidence, review, session state |
+| Aegis Secret        | Authority decisions for sensitive local commands and secrets               |
+| Aegis Engine        | Asynchronous event triage, drift intelligence, candidate context packs     |
+| Aegis Agent Runtime | Optional execution, sandbox, session, and tool substrate                   |
 
 Aegis Code can integrate with the other Aegis projects, but it should not absorb
 their product responsibilities.

@@ -27,13 +27,13 @@ to the same file unless `--method-state-output` is provided.
 
 Exit codes are stable for automation:
 
-| Code | Classification |
-| --- | --- |
-| 0 | success |
-| 20 | method gate failure |
-| 21 | tool denial |
-| 22 | provider failure |
-| 23 | internal error |
+| Code | Classification      |
+| ---- | ------------------- |
+| 0    | success             |
+| 20   | method gate failure |
+| 21   | tool denial         |
+| 22   | provider failure    |
+| 23   | internal error      |
 
 With `--json`, the stream includes Aegis preflight decisions and ends with an
 `exec.completed` event containing the exit code, classification, thread id, turn

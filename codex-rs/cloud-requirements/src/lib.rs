@@ -1213,6 +1213,7 @@ mod tests {
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
     }
@@ -1295,6 +1296,7 @@ mod tests {
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
     }
@@ -1328,6 +1330,7 @@ mod tests {
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
     }
@@ -1378,6 +1381,7 @@ mod tests {
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             })
         );
     }
@@ -1494,6 +1498,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 2);
@@ -1574,6 +1579,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 2);
@@ -1652,6 +1658,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
 
@@ -1858,6 +1865,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 0);
@@ -1898,6 +1906,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
 
@@ -1958,6 +1967,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 1);
@@ -2014,6 +2024,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 1);
@@ -2072,6 +2083,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 1);
@@ -2131,6 +2143,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 1);
@@ -2190,6 +2203,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             })
         );
         let payload_bytes = cache_payload_bytes(&cache_file.signed_payload).expect("payload bytes");
@@ -2279,6 +2293,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             }))
         );
 
@@ -2310,6 +2325,7 @@ command = "sample-mcp"
                 enforce_residency: None,
                 network: None,
                 permissions: None,
+                aegis_engine: None,
             })
         );
     }

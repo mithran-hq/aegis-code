@@ -114,6 +114,7 @@ fn sample_thread_start_response() -> ClientResponsePayload {
         sandbox: AppServerSandboxPolicy::DangerFullAccess,
         permission_profile: Some(sample_permission_profile()),
         active_permission_profile: None,
+        method_status: None,
         reasoning_effort: None,
     })
 }
@@ -131,6 +132,7 @@ fn sample_thread_resume_response() -> ClientResponsePayload {
         sandbox: AppServerSandboxPolicy::DangerFullAccess,
         permission_profile: Some(sample_permission_profile()),
         active_permission_profile: None,
+        method_status: None,
         reasoning_effort: None,
     })
 }
@@ -148,6 +150,7 @@ fn sample_thread_fork_response() -> ClientResponsePayload {
         sandbox: AppServerSandboxPolicy::DangerFullAccess,
         permission_profile: Some(sample_permission_profile()),
         active_permission_profile: None,
+        method_status: None,
         reasoning_effort: None,
     })
 }
