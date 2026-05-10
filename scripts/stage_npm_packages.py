@@ -78,6 +78,16 @@ def collect_native_components(packages: list[str]) -> set[str]:
     return components
 
 
+def collect_native_targets(packages: list[str]) -> set[str]:
+    targets: set[str] = set()
+    for package in packages:
+        platform_package = CODEX_PLATFORM_PACKAGES.get(package)
+        if not platform_package:
+            continue
+        targets.add(platform_package["target_triple"])
+    return targets
+
+
 def expand_packages(packages: list[str]) -> list[str]:
     expanded: list[str] = []
     for package in packages:
@@ -123,6 +133,7 @@ def resolve_workflow_url(version: str, override: str | None) -> tuple[str, str |
 def install_native_components(
     workflow_url: str,
     components: set[str],
+    targets: set[str],
     vendor_root: Path,
 ) -> None:
     if not components:
@@ -131,6 +142,8 @@ def install_native_components(
     cmd = [str(INSTALL_NATIVE_DEPS), "--workflow-url", workflow_url]
     for component in sorted(components):
         cmd.extend(["--component", component])
+    for target in sorted(targets):
+        cmd.extend(["--target", target])
     cmd.append(str(vendor_root))
     run_command(cmd)
 
@@ -157,6 +170,7 @@ def main() -> int:
 
     packages = expand_packages(list(args.packages))
     native_components = collect_native_components(packages)
+    native_targets = collect_native_targets(packages)
     allow_missing_native_components = set(args.allow_missing_native_components)
     native_components_to_install = native_components - allow_missing_native_components
 
@@ -172,7 +186,12 @@ def main() -> int:
                 args.release_version, args.workflow_url
             )
             vendor_temp_root = Path(tempfile.mkdtemp(prefix="npm-native-", dir=runner_temp))
-            install_native_components(workflow_url, native_components_to_install, vendor_temp_root)
+            install_native_components(
+                workflow_url,
+                native_components_to_install,
+                native_targets,
+                vendor_temp_root,
+            )
             vendor_src = vendor_temp_root / "vendor"
 
         if resolved_head_sha:

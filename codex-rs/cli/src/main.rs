@@ -123,7 +123,7 @@ use codex_terminal_detection::TerminalName;
 #[derive(Debug, Parser)]
 #[clap(
     author,
-    version,
+    version = codex_core::version::clap_version(),
     // If a sub‑command is given, ignore requirements of the default args.
     subcommand_negates_reqs = true,
     // The executable is sometimes invoked via a platform-specific name, but
@@ -3607,6 +3607,18 @@ mod tests {
         assert!(cmd.json);
         assert!(cli.interactive.oss);
         assert_eq!(cli.interactive.oss_provider.as_deref(), Some("ollama"));
+    }
+
+    #[test]
+    fn version_includes_release_and_source_provenance() {
+        let err = MultitoolCli::try_parse_from(["aegis", "--version"])
+            .expect_err("version should short-circuit");
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+        let version = err.to_string();
+        assert!(version.contains(env!("CARGO_PKG_VERSION")));
+        assert!(version.contains(codex_core::version::UPSTREAM_BASE));
+        assert!(version.contains(codex_core::version::SOURCE_REVISION));
     }
 
     #[test]

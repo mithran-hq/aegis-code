@@ -135,6 +135,21 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        help=(
+            "Directory containing already-downloaded GitHub Actions artifacts. "
+            "When set, --workflow-url is not required for native components."
+        ),
+    )
+    parser.add_argument(
+        "--target",
+        dest="targets",
+        action="append",
+        choices=BINARY_TARGETS,
+        help="Limit native installation to one target triple. May be repeated.",
+    )
+    parser.add_argument(
         "--component",
         dest="components",
         action="append",
@@ -172,32 +187,49 @@ def main() -> int:
         "rg",
     ]
 
+    selected_targets = tuple(args.targets or BINARY_TARGETS)
+
     workflow_url = (args.workflow_url or "").strip()
-    if not workflow_url and any(name in BINARY_COMPONENTS for name in components):
+    if (
+        not workflow_url
+        and args.artifacts_dir is None
+        and any(name in BINARY_COMPONENTS for name in components)
+    ):
         raise SystemExit(
-            "--workflow-url is required. Run a rust-release workflow for the "
-            "target release and pass its GitHub Actions run URL."
+            "--workflow-url or --artifacts-dir is required. Run a rust-release workflow for the "
+            "target release and pass its GitHub Actions run URL, or pass a directory containing "
+            "downloaded artifacts."
         )
 
     binary_components = [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS]
     if binary_components:
-        workflow_id = workflow_url.rstrip("/").split("/")[-1]
-        print(f"Downloading native artifacts from workflow {workflow_id}...")
+        if args.artifacts_dir is not None:
+            artifacts_dir = args.artifacts_dir.resolve()
+            install_binary_components(
+                artifacts_dir,
+                vendor_dir,
+                binary_components,
+                selected_targets,
+            )
+        else:
+            workflow_id = workflow_url.rstrip("/").split("/")[-1]
+            print(f"Downloading native artifacts from workflow {workflow_id}...")
 
-        with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
-            with tempfile.TemporaryDirectory(prefix="aegis-native-artifacts-") as artifacts_dir_str:
-                artifacts_dir = Path(artifacts_dir_str)
-                _download_artifacts(workflow_id, artifacts_dir)
-                install_binary_components(
-                    artifacts_dir,
-                    vendor_dir,
-                    binary_components,
-                )
+            with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
+                with tempfile.TemporaryDirectory(prefix="aegis-native-artifacts-") as artifacts_dir_str:
+                    artifacts_dir = Path(artifacts_dir_str)
+                    _download_artifacts(workflow_id, artifacts_dir)
+                    install_binary_components(
+                        artifacts_dir,
+                        vendor_dir,
+                        binary_components,
+                        selected_targets,
+                    )
 
     if "rg" in components:
         with _gha_group("Fetch ripgrep binaries"):
             print("Fetching ripgrep binaries...")
-            fetch_rg(vendor_dir, DEFAULT_RG_TARGETS, manifest_path=RG_MANIFEST)
+            fetch_rg(vendor_dir, selected_targets, manifest_path=RG_MANIFEST)
 
     print(f"Installed native dependencies into {vendor_dir}")
     return 0
@@ -289,12 +321,18 @@ def install_binary_components(
     artifacts_dir: Path,
     vendor_dir: Path,
     selected_components: Sequence[BinaryComponent],
+    selected_targets: Sequence[str] = BINARY_TARGETS,
 ) -> None:
     if not selected_components:
         return
 
+    selected_target_set = set(selected_targets)
     for component in selected_components:
-        component_targets = list(component.targets or BINARY_TARGETS)
+        component_targets = [
+            target for target in (component.targets or BINARY_TARGETS) if target in selected_target_set
+        ]
+        if not component_targets:
+            continue
 
         print(
             f"Installing {component.binary_basename} binaries for targets: "

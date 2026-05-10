@@ -18,6 +18,9 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DoctorReport {
     pub version: String,
+    pub upstream_repository: String,
+    pub upstream_base: String,
+    pub source_revision: String,
     pub codex_home: String,
     pub cwd: String,
     pub config_path: String,
@@ -60,8 +63,12 @@ pub fn build_doctor_report(config: &Config) -> DoctorReport {
         &sandbox_context,
     );
     let policy = sandbox_policy_summary(&sandbox_context);
+    let version = crate::version::info();
     DoctorReport {
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: version.release_version.to_string(),
+        upstream_repository: version.upstream_repository.to_string(),
+        upstream_base: version.upstream_base.to_string(),
+        source_revision: version.source_revision.to_string(),
         codex_home: config.codex_home.display().to_string(),
         cwd: config.cwd.display().to_string(),
         config_path: config
@@ -199,6 +206,11 @@ pub fn format_doctor_report_human(report: &DoctorReport) -> String {
     let mut output = String::new();
     output.push_str("Aegis Code Doctor\n");
     output.push_str(&format!("Version: {}\n", report.version));
+    output.push_str(&format!(
+        "Upstream base: {} {}\n",
+        report.upstream_repository, report.upstream_base
+    ));
+    output.push_str(&format!("Source revision: {}\n", report.source_revision));
     output.push_str(&format!("Config: {}\n", report.config_path));
     output.push_str(&format!("Home: {}\n", report.codex_home));
     output.push_str(&format!("Working directory: {}\n", report.cwd));

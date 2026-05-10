@@ -52,6 +52,9 @@ fn provider_catalog_default_model_uses_selected_provider_catalog() {
 fn human_report_lists_context_pack_status() {
     let report = DoctorReport {
         version: "0.1.0".to_string(),
+        upstream_repository: "https://github.com/openai/codex".to_string(),
+        upstream_base: "f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781".to_string(),
+        source_revision: "1111111111111111111111111111111111111111".to_string(),
         codex_home: "/tmp/aegis-home".to_string(),
         cwd: "/tmp/project".to_string(),
         config_path: "/tmp/aegis-home/config.toml".to_string(),
@@ -103,6 +106,9 @@ fn human_report_lists_context_pack_status() {
     let output = format_doctor_report_human(&report);
 
     assert!(output.contains("Aegis Code Doctor"));
+    assert!(output.contains("Version: 0.1.0"));
+    assert!(output.contains("Upstream base: https://github.com/openai/codex f7e8ff8e"));
+    assert!(output.contains("Source revision: 1111111111111111111111111111111111111111"));
     assert!(output.contains("Provider:"));
     assert!(output.contains("selected: openai-compatible (OpenAI compatible)"));
     assert!(output.contains("model: gpt-5.4"));
@@ -126,6 +132,9 @@ fn human_report_lists_context_pack_status() {
 fn human_report_makes_local_provider_endpoint_and_auth_clear() {
     let report = DoctorReport {
         version: "0.1.0".to_string(),
+        upstream_repository: "https://github.com/openai/codex".to_string(),
+        upstream_base: "f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781".to_string(),
+        source_revision: "1111111111111111111111111111111111111111".to_string(),
         codex_home: "/tmp/aegis-home".to_string(),
         cwd: "/tmp/project".to_string(),
         config_path: "/tmp/aegis-home/config.toml".to_string(),
@@ -172,6 +181,9 @@ fn human_report_makes_local_provider_endpoint_and_auth_clear() {
 fn provider_report_serializes_env_key_presence_without_secret_value() {
     let report = DoctorReport {
         version: "0.1.0".to_string(),
+        upstream_repository: "https://github.com/openai/codex".to_string(),
+        upstream_base: "f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781".to_string(),
+        source_revision: "1111111111111111111111111111111111111111".to_string(),
         codex_home: "/tmp/aegis-home".to_string(),
         cwd: "/tmp/project".to_string(),
         config_path: "/tmp/aegis-home/config.toml".to_string(),
@@ -208,6 +220,8 @@ fn provider_report_serializes_env_key_presence_without_secret_value() {
 
     assert!(json.contains("\"env_key\":\"OPENAI_API_KEY\""));
     assert!(json.contains("\"env_key_present\":true"));
+    assert!(json.contains("\"upstream_base\":\"f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781\""));
+    assert!(json.contains("\"source_revision\":\"1111111111111111111111111111111111111111\""));
     assert!(!json.contains("sk-"));
 }
 
@@ -215,6 +229,9 @@ fn provider_report_serializes_env_key_presence_without_secret_value() {
 fn provider_report_redacts_secret_base_url_material() {
     let report = DoctorReport {
         version: "0.1.0".to_string(),
+        upstream_repository: "https://github.com/openai/codex".to_string(),
+        upstream_base: "f7e8ff8e5026f92fc4b0be1478bf98f7ffcdd781".to_string(),
+        source_revision: "1111111111111111111111111111111111111111".to_string(),
         codex_home: "/tmp/aegis-home".to_string(),
         cwd: "/tmp/project".to_string(),
         config_path: "/tmp/aegis-home/config.toml".to_string(),
