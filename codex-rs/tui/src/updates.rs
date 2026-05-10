@@ -61,19 +61,12 @@ struct VersionInfo {
 }
 
 const VERSION_FILENAME: &str = "version.json";
-// We use the latest version from the cask if installation is via homebrew - homebrew does not immediately pick up the latest release and can lag behind.
-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/aegis.json";
 const LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/mithran-hq/aegis-code/releases/latest";
 
 #[derive(Deserialize, Debug, Clone)]
 struct ReleaseInfo {
     tag_name: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct HomebrewCaskInfo {
-    version: String,
 }
 
 fn version_filepath(config: &Config) -> PathBuf {
@@ -87,16 +80,6 @@ fn read_version_info(version_file: &Path) -> anyhow::Result<VersionInfo> {
 
 async fn check_for_update(version_file: &Path, action: Option<UpdateAction>) -> anyhow::Result<()> {
     let latest_version = match action {
-        Some(UpdateAction::BrewUpgrade) => {
-            let HomebrewCaskInfo { version } = create_client()
-                .get(HOMEBREW_CASK_API_URL)
-                .send()
-                .await?
-                .error_for_status()?
-                .json::<HomebrewCaskInfo>()
-                .await?;
-            version
-        }
         Some(UpdateAction::NpmGlobalLatest) | Some(UpdateAction::BunGlobalLatest) => {
             let latest_version = fetch_latest_github_release_version().await?;
             let package_info = create_client()
@@ -109,9 +92,10 @@ async fn check_for_update(version_file: &Path, action: Option<UpdateAction>) -> 
             npm_registry::ensure_version_ready(&package_info, &latest_version)?;
             latest_version
         }
-        Some(UpdateAction::StandaloneUnix) | Some(UpdateAction::StandaloneWindows) | None => {
-            fetch_latest_github_release_version().await?
-        }
+        Some(UpdateAction::BrewUpgrade)
+        | Some(UpdateAction::StandaloneUnix)
+        | Some(UpdateAction::StandaloneWindows)
+        | None => fetch_latest_github_release_version().await?,
     };
 
     // Preserve any previously dismissed version if present.

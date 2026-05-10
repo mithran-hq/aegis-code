@@ -1,9 +1,9 @@
 # Installing And Building
 
 Aegis Code currently supports source builds from this repository. GitHub
-Release artifacts, DotSlash files, Homebrew, and npm wrappers are v1
-distribution goals documented in [Distribution](DISTRIBUTION.md); do not assume
-those installers exist until a release publishes them.
+Release artifacts and the macOS Homebrew cask machinery are implemented as v1
+distribution paths, but do not assume an installer works until a public
+`rust-vX.Y.Z` release publishes the matching assets.
 
 ## System Requirements
 
@@ -95,10 +95,36 @@ The default suite checks repository scaffold files, README table of contents,
 Markdown/JSON/workflow/JS formatting, Rust formatting, Rust workspace build,
 workspace unit tests, and selected integration smoke tests.
 
+## Homebrew Cask
+
+After the first public release is published and the Mithran tap is updated,
+install the macOS cask with:
+
+```bash
+brew tap mithran-hq/tap
+brew install --cask aegis
+```
+
+Upgrade an existing cask install with:
+
+```bash
+brew upgrade --cask aegis
+```
+
+The cask installs the `aegis` executable. Run these checks after installation:
+
+```bash
+aegis --version
+aegis doctor
+```
+
+Linux Homebrew support is not part of the cask path. Linux users should use the
+standalone release installer or npm wrapper once release assets are published.
+
 ## DotSlash And Release Installers
 
-DotSlash, Homebrew, npm, and signed release artifacts are distribution targets,
-not the baseline first-run path for this repository state. When a GitHub Release
+DotSlash, npm, and signed release artifacts are distribution targets, not the
+baseline first-run path for this repository state. When a GitHub Release
 contains a DotSlash file named `aegis`, teams can commit that file to source
 control so every contributor runs the same platform binary.
 

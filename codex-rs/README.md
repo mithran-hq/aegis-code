@@ -11,7 +11,10 @@ npm i -g @mithran/aegis
 aegis
 ```
 
-You can also install via Homebrew (`brew install --cask aegis`) or download a platform-specific release directly from our [GitHub Releases](https://github.com/mithran-hq/aegis-code/releases).
+After the first public release is published, you can also install via Homebrew
+(`brew tap mithran-hq/tap && brew install --cask aegis`) or download a
+platform-specific release directly from our
+[GitHub Releases](https://github.com/mithran-hq/aegis-code/releases).
 
 ## Documentation quickstart
 

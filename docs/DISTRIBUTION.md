@@ -5,7 +5,7 @@ Aegis Code should be easy to install locally and strict enough for team CI.
 ## Recommended v1
 
 1. GitHub Releases with checksums and signed artifacts.
-2. Homebrew formula under the Mithran tap.
+2. Homebrew cask under the Mithran tap for macOS.
 3. npm wrapper that installs or launches the platform binary.
 4. Source builds for contributors.
 
@@ -51,6 +51,29 @@ Each GitHub Release must include:
 
 The npm package should be a thin installer or launcher. It must not become a
 second implementation of the harness.
+
+## Homebrew Cask
+
+The Homebrew path is a macOS cask named `aegis` in the Mithran tap:
+
+```bash
+brew tap mithran-hq/tap
+brew install --cask aegis
+```
+
+The tap repository is `mithran-hq/homebrew-tap`. Its cask update workflow takes
+an Aegis Code release version, downloads the matching `SHA256SUMS` from the
+`rust-vX.Y.Z` GitHub Release, renders `Casks/aegis.rb`, validates the cask, and
+commits the update to the tap. Checksums must come from the published release
+assets rather than manual edits.
+
+The cask installs the `aegis` executable from the macOS release tarballs. Linux
+Homebrew support is not part of the v1 cask path; Linux users should use the
+standalone installer or npm wrapper until a formula is added.
+
+Until the first public `rust-vX.Y.Z` release is published and the tap workflow
+is dispatched, the tap exists but `brew install --cask aegis` will not yet have
+a committed cask to install.
 
 ## Diagnostics
 
