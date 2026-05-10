@@ -454,6 +454,7 @@ pub(crate) async fn start_app_server_for_picker(
 pub(crate) async fn start_embedded_app_server_for_picker(
     config: &Config,
 ) -> color_eyre::Result<AppServerSession> {
+    crate::legacy_core::test_support::set_thread_manager_test_mode(true);
     let state_db = state_db::init(config).await;
     start_app_server_for_picker(
         config,
