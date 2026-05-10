@@ -56,7 +56,7 @@ run_step() {
   step_index=$((step_index + 1))
   printf '\n[%02d] %s\n' "$step_index" "$name"
   set +e
-  "$@"
+  (set -euo pipefail; "$@")
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then

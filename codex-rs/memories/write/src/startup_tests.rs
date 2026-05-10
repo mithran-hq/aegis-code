@@ -26,6 +26,8 @@ use tempfile::TempDir;
 use tokio::time::Duration;
 use tokio::time::Instant;
 
+const STARTUP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[tokio::test]
 async fn memories_startup_phase2_tracks_workspace_diff_across_runs() -> anyhow::Result<()> {
     let server = start_mock_server().await;
@@ -129,6 +131,17 @@ async fn memories_startup_phase2_prunes_old_extension_resources() -> anyhow::Res
         "rollout",
     )
     .await?;
+    let selected_inputs = db
+        .get_phase2_input_selection(
+            /*n*/ 1,
+            codex_config::types::DEFAULT_MEMORIES_MAX_UNUSED_DAYS,
+        )
+        .await?;
+    assert_eq!(
+        selected_inputs.len(),
+        1,
+        "fixture should seed one selectable phase-2 input before startup"
+    );
 
     let chronicle_resources = home.path().join("memories/extensions/chronicle/resources");
     tokio::fs::create_dir_all(&chronicle_resources).await?;
@@ -162,6 +175,7 @@ async fn memories_startup_phase2_prunes_old_extension_resources() -> anyhow::Res
     let test = build_test_codex(&server, home.clone()).await?;
     trigger_memories_startup(&test).await;
 
+    wait_for_file_removed(&old_file).await?;
     let request = wait_for_single_request(&phase2).await;
     let prompt = phase2_prompt_text(&request);
     assert!(
@@ -370,7 +384,7 @@ async fn wait_for_single_request(mock: &ResponseMock) -> ResponsesRequest {
 }
 
 async fn wait_for_file_removed(path: &Path) -> anyhow::Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + STARTUP_WAIT_TIMEOUT;
     loop {
         if !tokio::fs::try_exists(path).await? {
             return Ok(());
@@ -385,7 +399,7 @@ async fn wait_for_file_removed(path: &Path) -> anyhow::Result<()> {
 }
 
 async fn wait_for_request(mock: &ResponseMock, expected_count: usize) -> Vec<ResponsesRequest> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + STARTUP_WAIT_TIMEOUT;
     loop {
         let requests = mock.requests();
         if requests.len() >= expected_count {
@@ -403,7 +417,7 @@ async fn wait_for_service_tier(
     test: &TestCodex,
     expected_service_tier: Option<String>,
 ) -> anyhow::Result<codex_core::ThreadConfigSnapshot> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + STARTUP_WAIT_TIMEOUT;
     loop {
         let config_snapshot = test.codex.config_snapshot().await;
         if config_snapshot.service_tier == expected_service_tier {
@@ -428,7 +442,7 @@ fn phase2_prompt_text(request: &ResponsesRequest) -> String {
 
 async fn wait_for_phase2_workspace_reset(memory_root: &Path) -> anyhow::Result<()> {
     wait_for_file_removed(&memory_root.join("phase2_workspace_diff.md")).await?;
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + STARTUP_WAIT_TIMEOUT;
     loop {
         if let Ok(diff) = diff_since_latest_init(memory_root).await
             && !diff.has_changes()
