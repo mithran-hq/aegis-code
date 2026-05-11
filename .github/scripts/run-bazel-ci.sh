@@ -423,10 +423,14 @@ else
   #   clear remote cache/execution endpoints configured in .bazelrc.
   #   https://bazel.build/reference/command-line-reference#common_options-flag--remote_cache
   #   https://bazel.build/reference/command-line-reference#common_options-flag--remote_executor
+  # --experimental_remote_downloader=:
+  #   clear the remote downloader from .bazelrc. Bazel 9 rejects a configured
+  #   remote downloader when remote gRPC caching has been disabled.
   bazel_run_args=(
     "${bazel_args[@]}"
     --remote_cache=
     --remote_executor=
+    --experimental_remote_downloader=
   )
   if (( ${#post_config_bazel_args[@]} > 0 )); then
     bazel_run_args+=("${post_config_bazel_args[@]}")
