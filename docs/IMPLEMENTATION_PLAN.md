@@ -1,10 +1,26 @@
 # Implementation Plan
 
-This repository is tracked by a GitHub issue train.
+> **Status:** Superseded by `mithran-hq/aegis#1`.
+>
+> This Codex-derived harness train is no longer the Aegis OSS product plan. The
+> remaining work is to extract Codex adapter fixtures in #62, then archive this
+> repo through #63.
 
-## Strategy
+## Current Strategy
 
-Aegis Code starts as a Codex-derived harness and adds Aegis control in layers:
+The historical Aegis Code train proved useful harness ideas, but D42 moved the
+product control plane to `mithran-hq/aegis`. Going forward:
+
+1. #62 extracts Codex adapter fixtures for `mithran-hq/aegis#5` and
+   `mithran-hq/aegis#6`.
+2. #63 archives this repo after extraction is validated.
+3. Broader harness, release, Homebrew, npm, and app-server work is closed or
+   migrated rather than continued here.
+
+## Historical Strategy
+
+Aegis Code originally started as a Codex-derived harness and added Aegis control
+in layers:
 
 1. repo bootstrap and governance
 2. upstream source import and sync strategy
@@ -16,7 +32,7 @@ Aegis Code starts as a Codex-derived harness and adds Aegis control in layers:
 8. provider expansion, including native Anthropic
 9. distribution through GitHub Releases, Homebrew, and npm
 
-## Issue Train
+## Historical Issue Train
 
 The parent issue is the coordination artifact. Child issues are implementation
 units and should be small enough to land independently.
@@ -69,8 +85,15 @@ The current intended child tasks are:
 44. Add upgrade and version diagnostics.
 45. Supersede the old bruno-gate planning repo.
 
-## Closure
+## Current Closure
 
-The plan is complete when `aegis` can run the inherited coding loop,
-enforce method gates, record evidence, mediate sensitive commands, emit Aegis
-events, load promoted context packs, and ship installable release artifacts.
+This repository closes when #62 is accepted and #63 archives the repo. Product
+closure for Aegis OSS now lives in `mithran-hq/aegis#1`.
+
+## Historical Closure
+
+The original plan would have been complete when `aegis` could run the inherited
+coding loop, enforce method gates, record evidence, mediate sensitive commands,
+emit Aegis events, load promoted context packs, and ship installable release
+artifacts. That goal is superseded, not completed, because the architecture now
+puts product authority in `mithran-hq/aegis`.

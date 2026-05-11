@@ -2,58 +2,52 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Aegis Code is an Aegis-controlled coding agent harness derived from Codex.
+> **Status:** Superseded. `mithran-hq/aegis` is the Aegis OSS native product
+> control plane. This repo is retained temporarily only to extract Codex adapter
+> fixtures before archive.
 
-The project exists to make agent coding work falsifiable, resumable,
-policy-aware, and auditable. Prompts remain useful, but the product boundary is
-the harness: method state, evidence receipts, tool policy, sandbox posture,
-provider routing, and structured events.
+Aegis Code is a Codex-derived harness. It is no longer the center of the Aegis
+OSS architecture. Per D42, cross-agent local supervision, mutation authority,
+evidence-journal ownership, daemon authority, and product packaging belong in
+[`mithran-hq/aegis`](https://github.com/mithran-hq/aegis).
 
-## Product Shape
+## Remaining Purpose
 
-The planned v1 binary is:
+The only remaining work in this repo is:
 
-```bash
-aegis
-```
-
-The first release should keep the familiar Codex-style coding loop while adding
-Aegis-native control:
-
-- method gates for intent, claims, assumptions, falsifiers, evidence, review,
-  and closure
-- issue-train validation for parent plans and child execution tasks
-- evidence receipts that survive memory loss and session resume
-- Aegis Secret mediation for sensitive local commands
-- optional Aegis Agent Runtime execution substrate
-- asynchronous Aegis Engine events and promoted context packs
-- provider support for OpenAI-compatible APIs, native Anthropic, and local OSS
-  providers where practical
+- Extract Codex adapter fixtures for `mithran-hq/aegis#5` and
+  `mithran-hq/aegis#6`.
+- Document `~/.codex`, `$AEGIS_HOME`, config/session, and `AGENTS.md`
+  expectations useful to the Aegis daemon.
+- Archive this repo after extraction is accepted.
 
 ## Documentation
 
 Start with the [documentation home](docs/README.md) and the
 [first-run guide](docs/getting-started.md). The docs distinguish behavior that
-is implemented today from release and distribution work that is still tracked
-as roadmap.
+was implemented during the Codex-derived harness train from work that has now
+been superseded by `mithran-hq/aegis`.
 
 ## Boundary
 
-Aegis Code is not Aegis Secret, Aegis Engine, or Aegis Agent Runtime.
+Aegis Code is not Aegis Secret, Aegis Engine, Aegis Agent Runtime, or the Aegis
+native product control plane.
 
 Those projects stay separate:
 
 | Project             | Role                                                      |
 | ------------------- | --------------------------------------------------------- |
-| Aegis Code          | Coding agent harness and validity control                 |
+| Aegis               | Native app, daemon, adapters, evidence, mutation, package |
+| Aegis Code          | Temporary Codex adapter fixture source                    |
 | Aegis Secret        | Authority broker for sensitive commands and secrets       |
 | Aegis Engine        | Asynchronous event intelligence and context-pack learning |
 | Aegis Agent Runtime | Shared execution, sandbox, session, and tool substrate    |
 
 ## Current Status
 
-This repository contains the Codex-derived Aegis Code CLI and a GitHub issue
-train for issue-sized delivery.
+This repository contains the Codex-derived Aegis Code CLI and historical issue
+train evidence. The old product train is superseded by
+[`mithran-hq/aegis#1`](https://github.com/mithran-hq/aegis/issues/1).
 
 See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
