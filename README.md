@@ -2,24 +2,25 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-> **Status:** Superseded. `mithran-hq/aegis` is the Aegis OSS native product
-> control plane. This repo is retained temporarily only to extract Codex adapter
-> fixtures before archive.
+> **Status:** Archived. `mithran-hq/aegis` is the Aegis OSS native product
+> control plane. This repo is retained as historical Codex-derived harness
+> evidence and Codex adapter fixtures only.
 
 Aegis Code is a Codex-derived harness. It is no longer the center of the Aegis
 OSS architecture. Per D42, cross-agent local supervision, mutation authority,
 evidence-journal ownership, daemon authority, and product packaging belong in
 [`mithran-hq/aegis`](https://github.com/mithran-hq/aegis).
 
-## Remaining Purpose
+## Archived Purpose
 
-The only remaining work in this repo is:
+The final purpose of this repo is:
 
-- Extract Codex adapter fixtures for `mithran-hq/aegis#5` and
+- Preserve Codex adapter fixtures for `mithran-hq/aegis#5` and
   `mithran-hq/aegis#6`.
 - Document `~/.codex`, `$AEGIS_HOME`, config/session, and `AGENTS.md`
   expectations useful to the Aegis daemon.
-- Archive this repo after extraction is accepted.
+- Preserve historical issue-train evidence from the superseded Codex-derived
+  harness.
 
 The extraction artifact is
 [docs/codex-adapter-fixtures.md](docs/codex-adapter-fixtures.md).
@@ -48,8 +49,8 @@ Those projects stay separate:
 
 ## Current Status
 
-This repository contains the Codex-derived Aegis Code CLI and historical issue
-train evidence. The old product train is superseded by
+This archived repository contains the Codex-derived Aegis Code CLI and
+historical issue train evidence. The old product train is superseded by
 [`mithran-hq/aegis#1`](https://github.com/mithran-hq/aegis/issues/1).
 
 See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
