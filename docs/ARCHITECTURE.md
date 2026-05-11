@@ -1,30 +1,34 @@
 # Architecture
 
-Aegis Code is a coding agent harness derived from Codex.
+> **Status:** Superseded by `mithran-hq/aegis#1`.
+>
+> This document records the historical Aegis Code harness architecture. Current
+> Aegis OSS supervision, mutation authority, evidence, daemon behavior, and
+> packaging belong in `mithran-hq/aegis`. This repo now supplies only Codex
+> adapter fixtures before archive.
 
-The harness owns the control surfaces that prompt-only methods cannot enforce:
-method state, evidence receipts, sensitive tool mediation, sandbox posture,
-provider routing, session resume validity, and asynchronous learning from
-runtime events.
+Aegis Code was a coding agent harness derived from Codex. The historical design
+explored control surfaces that prompt-only methods could not enforce: method
+state, evidence receipts, sensitive tool mediation, sandbox posture, provider
+routing, session resume validity, and asynchronous learning from runtime events.
 
-## Product Boundary
+## Historical Product Boundary
 
-| Layer               | Responsibility                                                             |
-| ------------------- | -------------------------------------------------------------------------- |
-| Aegis Code          | Coding loop, method gates, prompts, tools, evidence, review, session state |
-| Aegis Secret        | Authority decisions for sensitive local commands and secrets               |
-| Aegis Engine        | Asynchronous event triage, drift intelligence, candidate context packs     |
-| Aegis Agent Runtime | Optional execution, sandbox, session, and tool substrate                   |
-
-Aegis Code can integrate with the other Aegis projects, but it should not absorb
-their product responsibilities.
+| Layer               | Responsibility                                                         |
+| ------------------- | ---------------------------------------------------------------------- |
+| Aegis               | Native app, daemon, adapters, evidence, mutation, package              |
+| Aegis Code          | Temporary Codex adapter fixture source                                 |
+| Aegis Secret        | Authority decisions for sensitive local commands and secrets           |
+| Aegis Engine        | Asynchronous event triage, drift intelligence, candidate context packs |
+| Aegis Agent Runtime | Optional execution, sandbox, session, and tool substrate               |
 
 The Codex-derived crate and module attachment points for v1 implementation are
-mapped in [CODEX_ARCHITECTURE_MAP.md](CODEX_ARCHITECTURE_MAP.md).
+preserved as historical evidence in
+[CODEX_ARCHITECTURE_MAP.md](CODEX_ARCHITECTURE_MAP.md).
 
 ## Architecture Decisions
 
-Accepted v1 architecture decisions are recorded in ADRs:
+Historical v1 architecture decisions are recorded in ADRs:
 
 - [ADR 0001: Aegis Code Product Boundary](adr/0001-aegis-code-product-boundary.md)
   names Aegis Code, chooses the harness posture, and separates sibling Aegis
@@ -39,7 +43,7 @@ Accepted v1 architecture decisions are recorded in ADRs:
   OpenAI-compatible behavior first, makes native Anthropic a first-class track,
   and keeps provider routing as a later policy layer.
 
-## Method State
+## Historical Method State
 
 The method record is:
 
@@ -51,7 +55,7 @@ The record must survive session resume. A completed statement only counts when
 its falsifiers and evidence remain inspectable after the agent's short-term
 memory has gone.
 
-## Prompt And Context Layers
+## Historical Prompt And Context Layers
 
 Prompt assembly should be deterministic:
 
@@ -67,7 +71,7 @@ change active behavior.
 The v1 context-pack TOML contract is defined in
 [Context Packs](context-packs.md).
 
-## Aegis Engine Loop
+## Historical Aegis Engine Loop
 
 The v1 learning loop is asynchronous:
 
@@ -82,11 +86,11 @@ apply only after promotion and only at a new session or resume boundary.
 The v1 event contract is defined in
 [Aegis Runtime Events](aegis-runtime-events.md).
 
-## Sensitive Tools
+## Historical Sensitive Tools
 
-Aegis Code should mediate configured sensitive commands through Aegis Secret
-when available. The request should include argv, cwd, repo, task scope, current
-method state, and the reason the command is sensitive.
+The historical harness design mediated configured sensitive commands through
+Aegis Secret when available. The request included argv, cwd, repo, task scope,
+current method state, and the reason the command was sensitive.
 
 The v1 broker request and response contract is defined in
 [Aegis Secret Policy Contract](aegis-secret-policy.md).

@@ -1,8 +1,12 @@
 # Codex Architecture Map
 
-This map names the Codex-derived crates and modules where Aegis Code should
-attach control surfaces. It is intentionally a map, not a redesign: prefer
-narrow adapters at these seams before changing inherited Codex flow.
+> **Status:** Historical. Current Aegis daemon and adapter work belongs in
+> `mithran-hq/aegis`; this map is retained as evidence for Codex adapter fixture
+> extraction.
+
+This map names the Codex-derived crates and modules where the superseded Aegis
+Code train planned to attach control surfaces. It is intentionally a map, not a
+redesign.
 
 ## Runtime Path
 

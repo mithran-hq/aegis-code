@@ -1,0 +1,15 @@
+{
+  "fixture_schema_version": 1,
+  "agent": "codex",
+  "source_kind": "session-rollout",
+  "path": "/fixture/aegis-home/sessions/2026/05/11/rollout-2026-05-11T12-00-00-00000000-0000-0000-0000-000000000062.jsonl",
+  "operation": "observe",
+  "watch_recommended": true,
+  "mutation_allowed": false,
+  "sensitive": true,
+  "notes": [
+    "Session rollout paths follow $AEGIS_HOME/sessions/YYYY/MM/DD/rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl.",
+    "Transcript contents are sensitive evidence.",
+    "Adapter events should summarize presence, metadata, and drift-relevant facts without copying raw prompts."
+  ]
+}

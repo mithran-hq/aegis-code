@@ -1,0 +1,19 @@
+{
+  "fixture_schema_version": 1,
+  "agent": "codex",
+  "source_kind": "managed-guidance-target",
+  "path": "/fixture/project-root/AGENTS.md",
+  "operation": "replace-managed-block",
+  "watch_recommended": true,
+  "mutation_allowed": true,
+  "sensitive": false,
+  "managed_block": {
+    "begin_marker": "<!-- BEGIN AEGIS CODE MANAGED GUIDANCE -->",
+    "end_marker": "<!-- END AEGIS CODE MANAGED GUIDANCE -->",
+    "conflict_policy": "do-not-write-on-duplicate-missing-or-reversed-markers"
+  },
+  "notes": [
+    "Preserve all user-authored content outside the managed block.",
+    "A reload or new-session prompt is required after a successful mutation."
+  ]
+}

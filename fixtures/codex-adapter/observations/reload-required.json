@@ -1,0 +1,19 @@
+{
+  "fixture_schema_version": 1,
+  "agent": "codex",
+  "source_kind": "reload-prompt",
+  "path": "/fixture/project-root/AGENTS.md",
+  "operation": "notify",
+  "watch_recommended": false,
+  "mutation_allowed": false,
+  "sensitive": false,
+  "reload": {
+    "required": true,
+    "reason": "Managed guidance changed after prompt assembly.",
+    "recommended_user_action": "Start a new Codex or Aegis session before relying on updated guidance."
+  },
+  "notes": [
+    "Running sessions may already have loaded old instructions.",
+    "The native Aegis daemon owns the final user-facing prompt wording."
+  ]
+}

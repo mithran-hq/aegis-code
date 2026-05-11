@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-11T12:00:00Z","type":"session_meta","payload":{"id":"00000000-0000-0000-0000-000000000062","timestamp":"2026-05-11T12:00:00Z","cwd":"/fixture/project-root/service","originator":"aegis-code-fixture","cli_version":"fixture","source":"cli","model_provider":"openai"}}
+{"timestamp":"2026-05-11T12:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"Fixture user message. Treat rollout content as sensitive evidence, not daemon log text.","kind":"plain"}}

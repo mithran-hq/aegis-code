@@ -1,11 +1,12 @@
 # Aegis Code Documentation
 
-Aegis Code is a Codex-derived coding-agent harness with Aegis controls for
-method state, evidence, review, sensitive commands, provider routing, sandbox
-posture, runtime events, and promoted context packs.
+> **Status:** Superseded. `mithran-hq/aegis` is now the Aegis OSS native
+> product control plane. This repository is retained temporarily for Codex
+> adapter fixture extraction before archive.
 
-Use this page as the docs-site home. These pages document the behavior supported
-by the repository today unless a section explicitly says roadmap.
+These pages mostly preserve historical Aegis Code behavior and design evidence.
+The current extraction artifact is
+[Codex adapter fixtures](codex-adapter-fixtures.md).
 
 ## First Run
 
@@ -58,7 +59,8 @@ by the repository today unless a section explicitly says roadmap.
 
 - [Migration from Codex](migration-from-codex.md) explains what can be imported,
   what stays separate, and what behavior intentionally changes.
-- [Architecture](ARCHITECTURE.md) summarizes product boundaries and accepted
-  ADRs.
-- [Distribution](DISTRIBUTION.md) records release and installer expectations.
+- [Architecture](ARCHITECTURE.md) summarizes the superseded harness boundary and
+  current handoff to `mithran-hq/aegis`.
+- [Distribution](DISTRIBUTION.md) preserves historical release and installer
+  expectations.
 - [Upstream sync](UPSTREAM.md) documents the Codex fork posture.

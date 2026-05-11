@@ -1,0 +1,18 @@
+model = "gpt-5.2"
+model_provider = "openai"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[features]
+child_agents_md = true
+
+[aegis_engine]
+enabled = true
+jsonl_path = "/fixture/aegis-home/aegis-engine/events.jsonl"
+alerts_path = "/fixture/aegis-home/aegis-engine/alerts.jsonl"
+candidate_inputs_path = "/fixture/aegis-home/aegis-engine/candidate-pack-inputs.jsonl"
+
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+env_key = "OPENAI_API_KEY"

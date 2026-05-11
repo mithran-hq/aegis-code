@@ -1,0 +1,15 @@
+{
+  "fixture_schema_version": 1,
+  "agent": "codex",
+  "source_kind": "user-config",
+  "path": "/fixture/codex-home/config.toml",
+  "operation": "observe",
+  "watch_recommended": true,
+  "mutation_allowed": false,
+  "sensitive": true,
+  "notes": [
+    "Source corresponds to ~/.codex/config.toml.",
+    "Provider env_key names are references, not secret values.",
+    "Literal secrets or auth material must not be copied into daemon logs."
+  ]
+}

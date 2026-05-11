@@ -1,6 +1,11 @@
 # Distribution
 
-Aegis Code should be easy to install locally and strict enough for team CI.
+> **Status:** Historical. Distribution for the current Aegis OSS product belongs
+> in `mithran-hq/aegis`. This page preserves the superseded Aegis Code release
+> plan for evidence only.
+
+Aegis Code was intended to be easy to install locally and strict enough for team
+CI.
 
 ## Recommended v1
 
@@ -17,7 +22,7 @@ The binary name is:
 aegis
 ```
 
-Release artifacts should cover at least:
+Historical release artifacts were expected to cover at least:
 
 - macOS arm64
 - macOS x64
@@ -77,7 +82,7 @@ a committed cask to install.
 
 ## Diagnostics
 
-Every distribution path should support:
+Every historical distribution path was expected to support:
 
 ```bash
 aegis doctor

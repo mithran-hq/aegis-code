@@ -21,6 +21,9 @@ The only remaining work in this repo is:
   expectations useful to the Aegis daemon.
 - Archive this repo after extraction is accepted.
 
+The extraction artifact is
+[docs/codex-adapter-fixtures.md](docs/codex-adapter-fixtures.md).
+
 ## Documentation
 
 Start with the [documentation home](docs/README.md) and the
