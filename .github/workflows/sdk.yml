@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           # Use the shared CI wrapper so fork PRs fall back cleanly when
           # BuildBuddy credentials are unavailable. This workflow needs the
-          # built `codex` binary on disk afterwards, so ask the wrapper to
+          # built CLI binary on disk afterwards, so ask the wrapper to
           # override CI's default remote_download_minimal behavior.
           ./.github/scripts/run-bazel-ci.sh \
             --remote-download-toplevel \
@@ -58,7 +58,7 @@ jobs:
             --build_metadata=COMMIT_SHA=${GITHUB_SHA} \
             --build_metadata=TAG_job=sdk \
             -- \
-            //codex-rs/cli:codex
+            //codex-rs/cli:aegis
 
           # Resolve the exact output file using the same wrapper/config path as
           # the build instead of guessing which Bazel convenience symlink is
@@ -69,7 +69,7 @@ jobs:
               cquery \
               --output=files \
               -- \
-              //codex-rs/cli:codex \
+              //codex-rs/cli:aegis \
               | grep -E '^(/|bazel-out/)' \
               | tail -n 1
           )"
@@ -79,7 +79,7 @@ jobs:
             codex_bazel_output_path="${GITHUB_WORKSPACE}/${cquery_output}"
           fi
           if [[ -z "${codex_bazel_output_path}" ]]; then
-            echo "Bazel did not report an output path for //codex-rs/cli:codex." >&2
+            echo "Bazel did not report an output path for //codex-rs/cli:aegis." >&2
             exit 1
           fi
           if [[ ! -e "${codex_bazel_output_path}" ]]; then
